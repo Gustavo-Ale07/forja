@@ -17,6 +17,7 @@ export {
   novoSegredoTotp,
   resolverSessao,
   revogarSessao,
+  revogarSessoesDoUsuario,
   type NovaSessao,
   type SessaoResolvida,
   type SessaoValida,

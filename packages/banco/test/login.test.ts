@@ -225,6 +225,16 @@ describe('sessão', () => {
     expect(await revogarSessao(app, s.token, t)).toBe(false);
   });
 
+  it('trocar senha ou TOTP revoga as sessões abertas do usuário', async () => {
+    const a = await sessaoDe(A, 'troca-senha');
+    await comEmpresa(dono, A.id, (trx) => definirSenha(trx, a.u.id, 'outra-senha-bem-longa'));
+    expect((await resolverSessao(app, a.s.token, a.t)).status).toBe('revogada');
+
+    const b = await sessaoDe(A, 'troca-totp');
+    await comEmpresa(dono, A.id, (trx) => definirTotp(trx, cofre, A.id, b.u.id, novoSegredoTotp(b.u.login).segredo));
+    expect((await resolverSessao(app, b.s.token, b.t)).status).toBe('revogada');
+  });
+
   it('token desconhecido ou lixo: inexistente', async () => {
     expect((await resolverSessao(app, crypto.randomBytes(32).toString('base64url'))).status).toBe('inexistente');
     expect((await resolverSessao(app, '')).status).toBe('inexistente');

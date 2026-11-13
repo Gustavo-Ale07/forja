@@ -85,6 +85,7 @@ export async function definirSenha(trx: Trx, usuarioId: string, senha: string): 
     .where('id', '=', usuarioId)
     .executeTakeFirst();
   if (Number(r.numUpdatedRows) !== 1) throw new ErroLogin('Usuário não encontrado nesta empresa.');
+  await revogarSessoesDoUsuario(trx, usuarioId);
 }
 
 /** Grava o segredo TOTP cifrado no Cofre. `trx` com comEmpresa(empresa) e papel dono. */
@@ -105,6 +106,18 @@ export async function definirTotp(
     .where('id', '=', usuarioId)
     .executeTakeFirst();
   if (Number(r.numUpdatedRows) !== 1) throw new ErroLogin('Usuário não encontrado nesta empresa.');
+  await revogarSessoesDoUsuario(trx, usuarioId);
+}
+
+/** Revoga todas as sessões abertas do usuário (troca de senha ou TOTP). Devolve quantas. */
+export async function revogarSessoesDoUsuario(trx: Trx, usuarioId: string, agora = new Date()): Promise<number> {
+  const r = await trx
+    .updateTable('sessao')
+    .set({ revogada_em: agora })
+    .where('usuario_id', '=', usuarioId)
+    .where('revogada_em', 'is', null)
+    .executeTakeFirst();
+  return Number(r.numUpdatedRows);
 }
 
 async function lerSegredoTotp(cofre: Cofre, empresaId: string, usuarioId: string, guardado: string): Promise<string> {

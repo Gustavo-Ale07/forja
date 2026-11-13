@@ -6,7 +6,7 @@ Este servidor MCP dá ao Claude Code acesso **controlado** à base de **teste** 
 - Criação de tabelas e campos `AD_`, pelas telas oficiais (Playwright), com conferência por SELECT no dicionário.
 - Gravação de registros com prévia, confirmação e aprovação.
 
-Toda chamada passa por um **porteiro de 7 regras** e fica registrada numa **auditoria SQLite que só aceita INSERT**.
+Toda chamada passa por um **porteiro de 7 regras** e fica registrada numa **auditoria que só aceita INSERT** (Postgres desde a Fase 2).
 
 > Nesta fase **só existe o ambiente `teste`**. O servidor se recusa a iniciar se o config ou o `.env`
 > apontar para algo que pareça produção. Ele também trava e encerra se `SELECT USER FROM DUAL` não
@@ -104,9 +104,9 @@ pnpm forja-aprovar <id>              # assina o plano (livre = pode executar)
 pnpm forja-aprovar <id> --passo 2    # aprova um passo com_aprovacao
 ```
 
-O comando pede que você digite o id de novo para confirmar. Ele só roda num terminal interativo e o Claude Code está proibido de chamá-lo. Cada passo executa **uma vez**: a auditoria é a fonte de verdade, e duas chamadas simultâneas do mesmo passo são barradas (a segunda é recusada na regra 2 com "já está em execução").
+O comando exige a sessão da Forja (`pnpm forja-admin login`): **o aprovador é o usuário dessa sessão**, gravado em `aprovado_por`. Ele mostra o plano, pede que você digite o id de novo e pede **um código TOTP novo do aplicativo autenticador a cada assinatura e a cada `--passo`**. O código é conferido e consumido no banco: o mesmo código não serve duas vezes. Código errado = nada é gravado, e a recusa fica na auditoria. Ele só roda num terminal interativo e o Claude Code está proibido de chamá-lo. Cada passo executa **uma vez**: a auditoria é a fonte de verdade, e duas chamadas simultâneas do mesmo passo são barradas (a segunda é recusada na regra 2 com "já está em execução").
 
-Qualquer mudança no plano depois da assinatura invalida o HMAC, e o porteiro recusa.
+Qualquer mudança no plano depois da assinatura invalida o HMAC, e o porteiro recusa. Plano assinado por quem não é mais usuário ativo da empresa também é recusado (regra 2); aprove de novo.
 
 ### Porteiro: as 7 regras, nesta ordem (para no primeiro "não")
 1. Usuário e perfil.
@@ -132,9 +132,11 @@ pnpm forja-auditoria hoje --json   # JSON completo (antes_json, depois_json, cap
 ```
 
 Detalhes da auditoria:
-- O banco fica em `auditoria/forja.db`, com a tabela `chamada_ferramenta`. UPDATE e DELETE são recusados por gatilho.
+- Fica no Postgres, na tabela `chamada_ferramenta`, separada por empresa (RLS) e com o usuário da sessão. O papel `forja_app` só tem SELECT e INSERT; UPDATE, DELETE e TRUNCATE são recusados por gatilho.
+- Entram as chamadas do servidor MCP, as calibrações e as aprovações e recusas do `forja-aprovar`.
+- O `forja-auditoria` exige a sessão e lista só a empresa dela, no fuso da empresa.
 - As capturas de tela de cada passo ficam em `auditoria/capturas/`.
-- Para abrir no DB Browser for SQLite ou no `sqlite3`: `SELECT * FROM chamada_ferramenta ORDER BY id DESC`.
+- O arquivo SQLite da Fase 1 (`auditoria/forja.db`), se existir, não é mais usado nem apagado: fica como histórico.
 
 ## 6. Limites conhecidos da Fase 1
 
@@ -177,8 +179,9 @@ pnpm forja-admin logout    # encerra a sessão no banco e apaga o arquivo local
 
 ### Limites conhecidos da Fase 2
 
-- **A barreira real contra o agente aprovar um plano sozinho é o código TOTP pedido a cada assinatura** (etapa 6 da Fase 2).
-  - Sem o aplicativo autenticador, quem ler a chave de aprovação não consegue assinar.
+- **O `forja-aprovar` pede um código TOTP a cada assinatura e a cada `--passo`.**
+  - Pelo caminho oficial, ninguém aprova sem o aplicativo autenticador.
+  - Mas o porteiro confere o HMAC, não o TOTP: quem conseguir ler a `FORJA_CHAVE_APROVACAO` ainda consegue montar uma assinatura válida sem passar pelo comando. Isso só acaba quando a aprovação for para a web (a chave sai desta máquina).
 - **A separação completa só vem quando o servidor rodar fora desta máquina.**
   - Hoje a `FORJA_CHAVE_MESTRA` e o `.env` ficam na mesma máquina em que o agente roda.
   - As regras de deny do `.claude/settings.json` (inclusive as da pasta da sessão) bloqueiam Read, Edit e Write, mas não comandos de shell indiretos. Continue revisando os comandos que o Claude Code pede para rodar.

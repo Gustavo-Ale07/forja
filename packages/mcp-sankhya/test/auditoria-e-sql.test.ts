@@ -1,46 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { Auditoria, hojeNoFuso, intervaloDoDia } from '../src/auditoria/registro.js';
+import { hojeNoFuso, intervaloDoDia, linhaAuditoria } from '../src/auditoria/registro.js';
 import { erroNavegador, ForjaErro } from '../src/comum/erros.js';
 import { mascarar, mascararTexto, mensagemSegura, registrarSegredo } from '../src/comum/mascara.js';
 import { contarMarcadores, validarFiltro, validarSelect } from '../src/sql/validar.js';
 
-describe('auditoria só aceita INSERT', () => {
-  const nova = () => {
-    const a = new Auditoria(':memory:');
-    a.registrar({ ambiente: 'teste', ferramenta: 'ler_dicionario', parametros: { tabela: 'X' }, resultado: 'aceito', motivo: 'executado' });
-    return a;
-  };
-  it('UPDATE é recusado pelo banco', () => {
-    const a = nova();
-    expect(() => a._db.prepare("UPDATE chamada_ferramenta SET motivo = 'x'").run()).toThrow(/só aceita INSERT/);
-  });
-  it('DELETE é recusado pelo banco', () => {
-    const a = nova();
-    expect(() => a._db.prepare('DELETE FROM chamada_ferramenta').run()).toThrow(/só aceita INSERT/);
-    expect(a.listarEntre('0000', '9999')).toHaveLength(1);
-  });
+describe('auditoria (formato da linha)', () => {
   it('mascara segredos nos parâmetros e no motivo', () => {
     registrarSegredo('valor-super-secreto');
-    const a = new Auditoria(':memory:');
-    a.registrar({
+    const l = linhaAuditoria({
       ambiente: 'teste',
       ferramenta: 'x',
       parametros: { senha: 'abc', client_secret: 'def', ok: 'valor-super-secreto' },
       resultado: 'erro',
       motivo: 'falhou com Bearer eyJabc.def e valor-super-secreto',
     });
-    const [e] = a.listarEntre('0000', '9999');
-    expect(e!.parametros).not.toMatch(/abc|def|valor-super-secreto/);
-    expect(e!.motivo).not.toMatch(/eyJabc|valor-super-secreto/);
+    expect(l.parametrosJson).not.toMatch(/abc|def|valor-super-secreto/);
+    expect(l.motivo).not.toMatch(/eyJabc|valor-super-secreto/);
   });
-  it('passoExecutado só conta execução efetiva aceita', () => {
-    const a = new Auditoria(':memory:');
-    const base = { ambiente: 'teste', ferramenta: 'gravar_registros', parametros: {}, planoId: 'p', passoId: 1 } as const;
-    a.registrar({ ...base, resultado: 'aceito', motivo: 'previa' });
-    a.registrar({ ...base, resultado: 'recusado', motivo: 'x' });
-    expect(a.passoExecutado('p', 1)).toBe(false);
-    a.registrar({ ...base, resultado: 'aceito', motivo: 'executado' });
-    expect(a.passoExecutado('p', 1)).toBe(true);
+  it('JSON grande é truncado', () => {
+    const l = linhaAuditoria({ ambiente: 'teste', ferramenta: 'x', parametros: {}, resultado: 'aceito', motivo: 'm', antes: 'a'.repeat(300_000) });
+    expect(JSON.parse(l.antesJson!)).toMatchObject({ truncado: true });
   });
   it('intervalo do dia no fuso de São Paulo', () => {
     expect(intervaloDoDia('2026-11-11', 'America/Sao_Paulo')).toEqual({ inicio: '2026-11-11T03:00:00.000Z', fim: '2026-11-12T03:00:00.000Z' });

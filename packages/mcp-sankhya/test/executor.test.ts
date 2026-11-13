@@ -96,7 +96,7 @@ describe('critério de pronto (no mock): AD_FORJATESTE com 3 campos', () => {
       'ler_dicionario:aceito',
       'criar_tabela_ad:recusado',
     ]);
-    for (const n of [1, 2, 3, 4, 5, 6]) expect(t.auditoria.passoExecutado('forjateste', n)).toBe(true);
+    for (const n of [1, 2, 3, 4, 5, 6]) expect(await t.auditoria.passoExecutado('forjateste', n)).toBe(true);
   });
 
   it('propor_plano recusa criar_tabela_ad com campos dentro', async () => {
@@ -129,7 +129,7 @@ describe('criar_campo_ad é seguro para repetir', () => {
     expect(JSON.parse(textoDe(r)).situacao).toMatch(/JÁ EXISTIA/);
     expect(t.construtor.acoes).toHaveLength(0);
     expect(t.eventos().at(-1)).toMatchObject({ resultado: 'aceito', motivo: 'já existia' });
-    expect(t.auditoria.passoExecutado('q', 1)).toBe(true);
+    expect(await t.auditoria.passoExecutado('q', 1)).toBe(true);
   });
 
   it('campo já existente com outro tipo: recusado, nada é mexido', async () => {
@@ -141,7 +141,7 @@ describe('criar_campo_ad é seguro para repetir', () => {
     expect(textoDe(r)).toMatch(/já existe em AD_FORJATESTE com outra definição/);
     expect(t.construtor.acoes).toHaveLength(0);
     expect(t.eventos().at(-1)!.resultado).toBe('recusado');
-    expect(t.auditoria.passoExecutado('q', 1)).toBe(false);
+    expect(await t.auditoria.passoExecutado('q', 1)).toBe(false);
   });
 });
 
@@ -204,7 +204,7 @@ describe('definir_opcoes_lista: uma ação, segura para repetir', () => {
     expect(JSON.parse(textoDe(r)).situacao).toMatch(/JÁ EXISTIA/);
     expect(t.construtor.acoes).toHaveLength(0);
     expect(t.eventos().at(-1)).toMatchObject({ resultado: 'aceito', motivo: 'já existia' });
-    expect(t.auditoria.passoExecutado('o', 1)).toBe(true);
+    expect(await t.auditoria.passoExecutado('o', 1)).toBe(true);
   });
 
   it('mesmo valor com outra descrição: recusado, nada é mexido', async () => {
@@ -214,7 +214,7 @@ describe('definir_opcoes_lista: uma ação, segura para repetir', () => {
     expect(r.isError).toBe(true);
     expect(textoDe(r)).toMatch(/"A" já existe como "Aberto"/);
     expect(t.construtor.acoes).toHaveLength(0);
-    expect(t.auditoria.passoExecutado('o', 1)).toBe(false);
+    expect(await t.auditoria.passoExecutado('o', 1)).toBe(false);
   });
 
   it('campo que não é lista ou não existe: recusado', async () => {
@@ -272,7 +272,7 @@ describe('marcar_obrigatorio: uma ação, segura para repetir', () => {
     const r = await rodar(t, { tabela: 'AD_FORJATESTE', campo: 'OBS' });
     expect(JSON.parse(textoDe(r)).situacao).toMatch(/JÁ EXISTIA/);
     expect(t.construtor.acoes).toHaveLength(0);
-    expect(t.auditoria.passoExecutado('r', 1)).toBe(true);
+    expect(await t.auditoria.passoExecutado('r', 1)).toBe(true);
   });
 
   it('tela "confirma" mas TDDPCO não muda: erro de conferência', async () => {
@@ -281,7 +281,7 @@ describe('marcar_obrigatorio: uma ação, segura para repetir', () => {
     const r = await rodar(t, { tabela: 'AD_FORJATESTE', campo: 'OBS' });
     expect(r.isError).toBe(true);
     expect(textoDe(r)).toMatch(/TDDPCO divergiu/);
-    expect(t.auditoria.passoExecutado('r', 1)).toBe(false);
+    expect(await t.auditoria.passoExecutado('r', 1)).toBe(false);
   });
 
   it('campo inexistente: recusado; tabela nativa: regra 5', async () => {
@@ -448,7 +448,7 @@ describe('outros caminhos do executor', () => {
     expect(e.antes_json).toBeTruthy();
     expect(e.captura_path).toBeTruthy();
     // o passo não conta como executado: pode ser repetido depois de corrigir
-    expect(t.auditoria.passoExecutado('c', 1)).toBe(false);
+    expect(await t.auditoria.passoExecutado('c', 1)).toBe(false);
   });
 
   it('falha do navegador vira erro com captura_path, sem a mensagem do Playwright', async () => {
@@ -462,7 +462,7 @@ describe('outros caminhos do executor', () => {
     expect(e.resultado).toBe('erro');
     expect(e.captura_path).toBeTruthy();
     expect(String(e.motivo)).not.toMatch(/Timeout|locator/);
-    expect(t.auditoria.passoExecutado('f', 1)).toBe(false);
+    expect(await t.auditoria.passoExecutado('f', 1)).toBe(false);
   });
 
   it('ferramenta desconhecida é recusada e registrada', async () => {

@@ -144,6 +144,9 @@ export function avaliar(def: DefinicaoPorteiro, bruto: unknown, dep: Dependencia
       if (!plano) throw new Recusa(2, `Plano "${planoId}" não encontrado em planos/.`);
       const assinatura = verificarAssinaturaPlano(plano, dep.chaveAprovacao);
       if (assinatura) throw new Recusa(2, assinatura);
+      if (!dep.config.usuarios[plano.aprovado_por!]) {
+        throw new Recusa(2, `O plano "${planoId}" foi aprovado por "${plano.aprovado_por}", que não é usuário ativo da empresa. Aprove de novo com forja-aprovar.`);
+      }
       const passo = plano.passos.find((s) => s.n === passoN);
       if (!passo) throw new Recusa(2, `O plano "${planoId}" não tem passo ${passoN}.`);
       if (passo.ferramenta !== def.nome) {
@@ -178,6 +181,8 @@ export function avaliar(def: DefinicaoPorteiro, bruto: unknown, dep: Dependencia
       const passo = plano!.passos.find((s) => s.n === passoN)!;
       const motivo = verificarAprovacaoPasso(plano!, passo, dep.chaveAprovacao);
       if (motivo) throw new Recusa(4, motivo);
+      const por = passo.aprovacao!.aprovado_por;
+      if (!dep.config.usuarios[por]) throw new Recusa(4, `O passo ${passoN} foi aprovado por "${por}", que não é usuário ativo da empresa.`);
     }
 
     // 5. Travas fixas

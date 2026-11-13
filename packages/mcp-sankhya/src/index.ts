@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Auditoria } from './auditoria/registro.js';
+import { AuditoriaPostgres } from './auditoria/registro.js';
 import { log } from './comum/log.js';
 import { mensagemSegura } from './comum/mascara.js';
 import { carregarConfigBanco } from './config/banco.js';
@@ -20,7 +20,7 @@ process.env.TZ ??= 'America/Sao_Paulo';
 async function principal(): Promise<void> {
   // Trava de produção + sessão válida (pnpm forja-admin login): qualquer problema = o servidor não inicia.
   const cfg = await carregarConfigBanco();
-  const auditoria = new Auditoria(cfg.caminhos.bancoAuditoria);
+  const auditoria = new AuditoriaPostgres(cfg.app, cfg.empresaId);
   const gateway = criarClienteReal({
     gatewayUrl: cfg.configAmbiente.gateway_url,
     clientId: cfg.credenciais.clientId,
@@ -53,7 +53,6 @@ async function principal(): Promise<void> {
     } catch {
       /* ignora */
     }
-    auditoria.fechar();
     await cfg.app.destroy().catch(() => undefined);
     process.exit(codigo);
   };

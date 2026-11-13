@@ -14,13 +14,17 @@ import {
   definirTotp,
   importarConfig,
   novoSegredoTotp,
+  listarChamadas,
+  resolverSessao,
   revogarSessao,
   type ConfigImportada,
   type Db,
   type SessaoLocal,
 } from '@forja/banco';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { aprovar, type PedidoAprovacao } from '../src/cli/aprovacao.js';
 import { carregarConfigBanco, type ConfigServidor } from '../src/config/banco.js';
+import { gravarPlano, lerPlano, verificarAssinaturaPlano } from '../src/porteiro/planos.js';
 import { montarExecutor, pastaTemporaria, textoDe } from './ajuda.js';
 
 /** Banco de testes do pacote @forja/banco (migrado pelos testes dele). Valores genéricos. */
@@ -29,6 +33,7 @@ const URL_APP = process.env.FORJA_BANCO_TESTE_APP_URL ?? 'postgres://forja_app:f
 const CHAVE_MESTRA = crypto.randomBytes(32).toString('hex');
 const cofre = new CofreAesGcm(Buffer.from(CHAVE_MESTRA, 'hex'));
 const SENHA = 'senha-de-teste-bem-longa';
+const CHAVE_APROVACAO = 'k'.repeat(40);
 
 let dono: Db;
 let app: Db;
@@ -88,7 +93,7 @@ async function empresaComSessao() {
   const u = await autenticar(app, cofre, { login, senha: SENHA, codigo: codigoTotpAtual(segredo, login, t) }, t);
   const s = await criarSessao(app, u, t);
   const sessao: SessaoLocal = { token: s.token, login, expira_em: s.expiraEm.toISOString() };
-  return { e, slug, login, sessao, ler: () => sessao };
+  return { e, slug, login, segredo, sessao, ler: () => sessao };
 }
 
 async function subir(r: string, ler: () => SessaoLocal | undefined): Promise<ConfigServidor> {
@@ -163,6 +168,7 @@ describe('servidor MCP a partir do banco', () => {
 
     const ok = await m.executor.chamar('ler_dicionario', { tabela: 'TGFPAR' });
     expect(ok.isError).toBeUndefined();
+    expect(m.eventos().at(-1)).toMatchObject({ usuario: x.login, usuario_id: c.usuarioId, resultado: 'aceito' });
 
     // o admin bloqueia a ação no banco: vale na próxima chamada, sem reiniciar
     await comEmpresa(dono, x.e.id, (trx) => trx.updateTable('perfil_permissao').set({ nivel: 'bloqueado' }).where('acao', '=', 'ler_dicionario').execute());
@@ -182,5 +188,76 @@ describe('servidor MCP a partir do banco', () => {
     const c = await subir(raiz(), () => atual);
     atual = b.sessao;
     await expect(c.identidade()).rejects.toThrow(/outra empresa/);
+  });
+});
+
+describe('forja-aprovar: aprovador da sessão e TOTP a cada assinatura', () => {
+  async function preparar() {
+    const x = await empresaComSessao();
+    const s = await resolverSessao(app, x.sessao.token);
+    if (s.status !== 'valida') throw new Error('sessão de teste inválida');
+    const dir = pastaTemporaria();
+    gravarPlano(dir, {
+      id: 'pl',
+      descricao: 'plano de teste',
+      passos: [{ n: 1, ferramenta: 'gravar_registros', parametros: { tabela: 'AD_X', registros: [{ A: 1 }] } }],
+    });
+    const saida: string[] = [];
+    const pedido = (codigo: string, extra: Partial<PedidoAprovacao> = {}): PedidoAprovacao => ({
+      app,
+      cofre,
+      sessao: s,
+      chave: CHAVE_APROVACAO,
+      diretorioPlanos: dir,
+      id: 'pl',
+      confirmarId: async () => 'pl',
+      pedirCodigo: async () => codigo,
+      escrever: (t) => saida.push(t),
+      ...extra,
+    });
+    const auditoria = () => listarChamadas(app, x.e.id, new Date(0), new Date('2100-01-01'));
+    return { x, s, dir, pedido, saida, auditoria };
+  }
+  const daqui = (s: number) => new Date(Date.now() + s * 1000);
+
+  it('código errado: nada é gravado e a recusa vai para a auditoria', async () => {
+    const { dir, pedido, auditoria, x } = await preparar();
+    const r = await aprovar(pedido('000000'));
+    expect(r).toMatchObject({ aprovado: false, motivo: expect.stringMatching(/TOTP inválido[\s\S]*Nada foi gravado/) });
+    expect(lerPlano(dir, 'pl')!.assinatura).toBeUndefined();
+    expect(await auditoria()).toMatchObject([{ ferramenta: 'forja-aprovar', resultado: 'recusado', usuario: x.login, plano_id: 'pl' }]);
+  });
+
+  it('id digitado diferente: nada é gravado e o código nem é pedido', async () => {
+    const { dir, pedido } = await preparar();
+    let pediu = false;
+    const r = await aprovar(pedido('x', { confirmarId: async () => 'outro', pedirCodigo: async () => ((pediu = true), 'x') }));
+    expect(r.aprovado).toBe(false);
+    expect(pediu).toBe(false);
+    expect(lerPlano(dir, 'pl')!.assinatura).toBeUndefined();
+  });
+
+  it('código certo assina com o login da sessão; o mesmo código não serve para o passo; um novo serve', async () => {
+    const { x, s, dir, pedido, auditoria } = await preparar();
+    const t1 = daqui(60);
+    const c1 = codigoTotpAtual(x.segredo, x.login, t1);
+    expect(await aprovar(pedido(c1, { agora: () => t1 }))).toEqual({ aprovado: true, aprovadoPor: x.login });
+    const plano = lerPlano(dir, 'pl')!;
+    expect(plano.aprovado_por).toBe(x.login);
+    expect(verificarAssinaturaPlano(plano, CHAVE_APROVACAO)).toBeNull();
+
+    // reuso do código (mesmo período): recusado
+    expect(await aprovar(pedido(c1, { passo: 1, agora: () => t1 }))).toMatchObject({ aprovado: false });
+    expect(lerPlano(dir, 'pl')!.passos[0]!.aprovacao).toBeUndefined();
+
+    const t2 = daqui(90);
+    expect(await aprovar(pedido(codigoTotpAtual(x.segredo, x.login, t2), { passo: 1, agora: () => t2 }))).toMatchObject({ aprovado: true });
+    expect(lerPlano(dir, 'pl')!.passos[0]!.aprovacao!.aprovado_por).toBe(x.login);
+    expect((await auditoria()).map((e) => `${e.resultado}:${e.motivo}`)).toEqual([
+      'aceito:plano assinado',
+      expect.stringMatching(/^recusado:aprovação recusada/),
+      'aceito:passo 1 aprovado',
+    ]);
+    expect((await auditoria())[0]!.usuario_id).toBe(s.usuarioId);
   });
 });

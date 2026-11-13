@@ -18,7 +18,18 @@ export interface RespostaFerramenta {
 
 export interface Identidade {
   usuario: string;
+  /** Id do usuário no banco (vai para a auditoria). */
+  usuarioId?: string;
   config: ConfigArquivo;
+}
+
+/** plano_id/passo_id como o porteiro os lê (passo pode vir como "3"). */
+function passoPedido(bruto: unknown): { planoId: string; passoId: number } | undefined {
+  if (!bruto || typeof bruto !== 'object') return undefined;
+  const { plano_id: planoId, passo_id: p } = bruto as Record<string, unknown>;
+  const passoId = typeof p === 'string' && /^\d+$/.test(p) ? Number(p) : p;
+  if (typeof planoId !== 'string' || planoId === '' || typeof passoId !== 'number' || !Number.isInteger(passoId) || passoId <= 0) return undefined;
+  return { planoId, passoId };
 }
 
 export interface DependenciasExecutor {
@@ -81,16 +92,12 @@ export class Executor {
     this.agora = d.agora ?? (() => new Date());
   }
 
-  private depsPorteiro(config: ConfigArquivo, usuario: string | undefined): DependenciasPorteiro {
-    return {
-      config,
-      ambiente: this.d.ambiente,
-      usuario,
-      chaveAprovacao: this.d.chaveAprovacao,
-      agora: this.agora,
-      lerPlano: this.d.lerPlano,
-      passoJaExecutado: (id, n) => this.d.auditoria.passoExecutado(id, n),
-    };
+  private depsPorteiro(
+    config: ConfigArquivo,
+    usuario: string | undefined,
+    passoJaExecutado: DependenciasPorteiro['passoJaExecutado'],
+  ): DependenciasPorteiro {
+    return { config, ambiente: this.d.ambiente, usuario, chaveAprovacao: this.d.chaveAprovacao, agora: this.agora, lerPlano: this.d.lerPlano, passoJaExecutado };
   }
 
   /** SELECT USER FROM DUAL tem de bater com usuario_banco_esperado. Uma vez por processo. */
@@ -110,51 +117,61 @@ export class Executor {
   }
 
   async chamar(nome: string, bruto: unknown): Promise<RespostaFerramenta> {
+    // Reserva síncrona do passo (antes de qualquer await): duas chamadas simultâneas do mesmo passo
+    // não podem ambas passar pelo "passo já executado" (regra 2), que agora é lido do banco.
+    const pedido = passoPedido(bruto);
+    const chavePasso = pedido ? `${pedido.planoId}#${pedido.passoId}` : undefined;
+    if (chavePasso && this.passosEmCurso.has(chavePasso)) {
+      const motivo = `[regra 2 – ${NOMES_REGRAS[2]}] O passo ${pedido!.passoId} do plano "${pedido!.planoId}" já está em execução.`;
+      await this.d.auditoria.registrar({ usuario: this.d.usuario, ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {}, ...pedido, resultado: 'recusado', motivo });
+      return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
+    }
+    if (chavePasso) this.passosEmCurso.add(chavePasso);
+    try {
+      return await this.chamarReservado(nome, bruto, pedido);
+    } finally {
+      if (chavePasso) this.passosEmCurso.delete(chavePasso);
+    }
+  }
+
+  private async chamarReservado(nome: string, bruto: unknown, pedido: { planoId: string; passoId: number } | undefined): Promise<RespostaFerramenta> {
     let usuario = this.d.usuario;
+    let usuarioId: string | undefined;
     let config = this.d.config;
     if (this.d.identidade) {
       try {
-        ({ usuario, config } = await this.d.identidade());
+        ({ usuario, usuarioId, config } = await this.d.identidade());
       } catch (e) {
         const motivo = `[regra 1 – ${NOMES_REGRAS[1]}] ${mensagemSegura(e)}`;
-        this.d.auditoria.registrar({ ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {}, resultado: 'recusado', motivo });
+        await this.d.auditoria.registrar({ ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {}, resultado: 'recusado', motivo });
         return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
       }
     }
     const perfil = usuario ? config.usuarios[usuario] : undefined;
-    const base = { usuario, perfil, ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {} };
+    const base = { usuarioId, usuario, perfil, ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {} };
 
     if (this.travado) {
-      this.d.auditoria.registrar({ ...base, resultado: 'recusado', motivo: this.travado });
+      await this.d.auditoria.registrar({ ...base, resultado: 'recusado', motivo: this.travado });
       return texto(`RECUSADO: ${this.travado}`, true);
     }
 
     const def = this.d.ferramentas.get(nome);
     if (!def) {
       const motivo = `[regra 7 – ${NOMES_REGRAS[7]}] Ferramenta desconhecida: "${nome}".`;
-      this.d.auditoria.registrar({ ...base, resultado: 'recusado', motivo });
+      await this.d.auditoria.registrar({ ...base, resultado: 'recusado', motivo });
       return texto(`RECUSADO ${motivo} Nada foi enviado ao Sankhya.`, true);
     }
 
-    const dec = avaliar(def, bruto, this.depsPorteiro(config, usuario));
+    const jaExecutado = pedido ? await this.d.auditoria.passoExecutado(pedido.planoId, pedido.passoId) : false;
+    // Fora do passo reservado, responde "executado" (falha fechada): o porteiro só consulta esse passo.
+    const consultar = (id: string, n: number) => (pedido && id === pedido.planoId && n === pedido.passoId ? jaExecutado : true);
+    const dec = avaliar(def, bruto, this.depsPorteiro(config, usuario, consultar));
     const ids = { planoId: dec.planoId, passoId: dec.passoId };
     if (!dec.aceito) {
       const motivo = `[regra ${dec.regra} – ${NOMES_REGRAS[dec.regra]}] ${dec.motivo}`;
-      this.d.auditoria.registrar({ ...base, ...ids, resultado: 'recusado', motivo });
+      await this.d.auditoria.registrar({ ...base, ...ids, resultado: 'recusado', motivo });
       this.d.log?.warn({ ferramenta: nome, regra: dec.regra }, 'chamada recusada pelo porteiro');
       return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
-    }
-
-    // Reserva síncrona (sem await entre a regra 2 e aqui): duas chamadas simultâneas do mesmo passo
-    // não podem ambas passar pelo "passo já executado".
-    const chavePasso = dec.planoId !== undefined && dec.passoId !== undefined ? `${dec.planoId}#${dec.passoId}` : undefined;
-    if (chavePasso) {
-      if (this.passosEmCurso.has(chavePasso)) {
-        const motivo = `[regra 2 – ${NOMES_REGRAS[2]}] O passo ${dec.passoId} do plano "${dec.planoId}" já está em execução.`;
-        this.d.auditoria.registrar({ ...base, ...ids, perfil: dec.perfil, resultado: 'recusado', motivo });
-        return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
-      }
-      this.passosEmCurso.add(chavePasso);
     }
 
     const ctx: ContextoExecucao = {
@@ -177,14 +194,14 @@ export class Executor {
           await this.garantirAmbiente();
         } catch (e) {
           const motivo = mensagemSegura(e);
-          this.d.auditoria.registrar({ ...aud, resultado: 'erro', motivo });
+          await this.d.auditoria.registrar({ ...aud, resultado: 'erro', motivo });
           if (this.travado) this.d.encerrar(this.travado);
           return texto(`ERRO: ${motivo}`, true);
         }
       }
       const rodar = () => def.executar(dec.params as never, ctx);
       const r = def.usaNavegador ? await this.navegador.rodar(rodar) : await rodar();
-      this.d.auditoria.registrar({
+      await this.d.auditoria.registrar({
         ...aud,
         resultado: 'aceito',
         motivo: r.motivo ?? 'executado',
@@ -197,7 +214,7 @@ export class Executor {
       const motivo = mensagemSegura(e);
       const det = e instanceof ForjaErro ? e.detalhes : undefined;
       const recusa = e instanceof ForjaErro && e.codigo === 'RECUSADO_EXECUCAO';
-      this.d.auditoria.registrar({
+      await this.d.auditoria.registrar({
         ...aud,
         resultado: recusa ? 'recusado' : 'erro',
         motivo: recusa ? `[execução] ${motivo}` : motivo,
@@ -207,8 +224,6 @@ export class Executor {
       });
       this.d.log?.error({ ferramenta: nome, erro: motivo }, 'falha na execução');
       return texto(recusa ? `RECUSADO na execução: ${motivo}` : `ERRO: ${motivo}`, true);
-    } finally {
-      if (chavePasso) this.passosEmCurso.delete(chavePasso);
     }
   }
 }

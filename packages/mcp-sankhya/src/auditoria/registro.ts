@@ -1,11 +1,10 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import Database from 'better-sqlite3';
+import { passoExecutado, registrarChamada, type ChamadaNova, type Db } from '@forja/banco';
 import { mascarar, mascararTexto } from '../comum/mascara.js';
 
 export type Resultado = 'aceito' | 'recusado' | 'erro';
 
 export interface EventoNovo {
+  usuarioId?: string | undefined;
   usuario?: string | undefined;
   perfil?: string | undefined;
   ambiente: string;
@@ -22,47 +21,15 @@ export interface EventoNovo {
   capturaPath?: string | undefined;
 }
 
-export interface EventoGravado {
-  id: number;
-  data_hora: string;
-  usuario: string | null;
-  perfil: string | null;
-  ambiente: string;
-  ferramenta: string;
-  parametros: string;
-  plano_id: string | null;
-  passo_id: number | null;
-  resultado: Resultado;
-  motivo: string;
-  antes_json: string | null;
-  depois_json: string | null;
-  captura_path: string | null;
+/**
+ * Log de auditoria. Só existe `registrar` (INSERT) e a consulta de passo executado; não há rota
+ * de UPDATE ou DELETE, e o Postgres recusa as duas (e o TRUNCATE) por gatilho.
+ */
+export interface Auditoria {
+  registrar(ev: EventoNovo): Promise<void>;
+  /** Um passo conta como executado quando houve execução efetiva aceita. */
+  passoExecutado(planoId: string, passoId: number): Promise<boolean>;
 }
-
-const ESQUEMA = `
-CREATE TABLE IF NOT EXISTS chamada_ferramenta (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  data_hora    TEXT    NOT NULL,
-  usuario      TEXT,
-  perfil       TEXT,
-  ambiente     TEXT    NOT NULL,
-  ferramenta   TEXT    NOT NULL,
-  parametros   TEXT    NOT NULL,
-  plano_id     TEXT,
-  passo_id     INTEGER,
-  resultado    TEXT    NOT NULL CHECK (resultado IN ('aceito','recusado','erro')),
-  motivo       TEXT    NOT NULL,
-  antes_json   TEXT,
-  depois_json  TEXT,
-  captura_path TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_chamada_data  ON chamada_ferramenta(data_hora);
-CREATE INDEX IF NOT EXISTS ix_chamada_plano ON chamada_ferramenta(plano_id, passo_id);
-CREATE TRIGGER IF NOT EXISTS chamada_sem_update BEFORE UPDATE ON chamada_ferramenta
-BEGIN SELECT RAISE(ABORT, 'auditoria só aceita INSERT'); END;
-CREATE TRIGGER IF NOT EXISTS chamada_sem_delete BEFORE DELETE ON chamada_ferramenta
-BEGIN SELECT RAISE(ABORT, 'auditoria só aceita INSERT'); END;
-`;
 
 const LIMITE_JSON = 200_000;
 
@@ -72,70 +39,39 @@ function json(v: unknown): string | null {
   return texto.length > LIMITE_JSON ? JSON.stringify({ truncado: true, inicio: texto.slice(0, LIMITE_JSON) }) : texto;
 }
 
-/**
- * Log de auditoria. A classe só expõe `registrar` (INSERT) e consultas; não há rota de UPDATE
- * ou DELETE, e o banco recusa as duas por gatilho.
- */
-export class Auditoria {
-  private readonly db: Database.Database;
-  private readonly inserir: Database.Statement;
+/** Evento → linha da tabela, com segredos mascarados e JSON limitado. */
+export function linhaAuditoria(ev: EventoNovo): ChamadaNova {
+  return {
+    usuarioId: ev.usuarioId,
+    usuario: ev.usuario,
+    perfil: ev.perfil,
+    ambiente: ev.ambiente,
+    ferramenta: ev.ferramenta,
+    parametrosJson: json(ev.parametros ?? {}) ?? '{}',
+    planoId: ev.planoId,
+    passoId: ev.passoId,
+    resultado: ev.resultado,
+    motivo: mascararTexto(ev.motivo).slice(0, 4000),
+    antesJson: json(ev.antes),
+    depoisJson: json(ev.depois),
+    capturaPath: ev.capturaPath,
+  };
+}
 
-  constructor(arquivo: string) {
-    if (arquivo !== ':memory:') fs.mkdirSync(path.dirname(arquivo), { recursive: true });
-    this.db = new Database(arquivo);
-    this.db.pragma('journal_mode = WAL');
-    this.db.exec(ESQUEMA);
-    this.inserir = this.db.prepare(`
-      INSERT INTO chamada_ferramenta
-        (data_hora, usuario, perfil, ambiente, ferramenta, parametros, plano_id, passo_id,
-         resultado, motivo, antes_json, depois_json, captura_path)
-      VALUES (@data_hora, @usuario, @perfil, @ambiente, @ferramenta, @parametros, @plano_id, @passo_id,
-         @resultado, @motivo, @antes_json, @depois_json, @captura_path)`);
+/** Auditoria da empresa no Postgres (tabela chamada_ferramenta, sob RLS). */
+export class AuditoriaPostgres implements Auditoria {
+  constructor(
+    private readonly app: Db,
+    private readonly empresaId: string,
+    private readonly agora: () => Date = () => new Date(),
+  ) {}
+
+  async registrar(ev: EventoNovo): Promise<void> {
+    await registrarChamada(this.app, this.empresaId, linhaAuditoria(ev), this.agora());
   }
 
-  registrar(ev: EventoNovo, agora = new Date()): number {
-    const r = this.inserir.run({
-      data_hora: agora.toISOString(),
-      usuario: ev.usuario ?? null,
-      perfil: ev.perfil ?? null,
-      ambiente: ev.ambiente,
-      ferramenta: ev.ferramenta,
-      parametros: json(ev.parametros) ?? '{}',
-      plano_id: ev.planoId ?? null,
-      passo_id: ev.passoId ?? null,
-      resultado: ev.resultado,
-      motivo: mascararTexto(ev.motivo).slice(0, 4000),
-      antes_json: json(ev.antes),
-      depois_json: json(ev.depois),
-      captura_path: ev.capturaPath ?? null,
-    });
-    return Number(r.lastInsertRowid);
-  }
-
-  /** Eventos entre dois instantes (ISO UTC), em ordem. */
-  listarEntre(inicioIso: string, fimIso: string): EventoGravado[] {
-    return this.db
-      .prepare('SELECT * FROM chamada_ferramenta WHERE data_hora >= ? AND data_hora < ? ORDER BY id')
-      .all(inicioIso, fimIso) as EventoGravado[];
-  }
-
-  /** Um passo conta como executado quando houve execução efetiva aceita. */
-  passoExecutado(planoId: string, passoId: number): boolean {
-    const r = this.db
-      .prepare(
-        "SELECT 1 FROM chamada_ferramenta WHERE plano_id = ? AND passo_id = ? AND resultado = 'aceito' AND motivo IN ('executado', 'já existia') LIMIT 1",
-      )
-      .get(planoId, passoId);
-    return r !== undefined;
-  }
-
-  /** Só para testes: acesso cru, para provar que UPDATE/DELETE são recusados pelo banco. */
-  get _db(): Database.Database {
-    return this.db;
-  }
-
-  fechar(): void {
-    this.db.close();
+  passoExecutado(planoId: string, passoId: number): Promise<boolean> {
+    return passoExecutado(this.app, this.empresaId, planoId, passoId);
   }
 }
 

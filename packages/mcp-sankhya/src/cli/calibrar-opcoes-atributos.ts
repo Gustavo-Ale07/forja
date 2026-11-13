@@ -16,7 +16,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Frame, FrameLocator, Locator, Page } from 'playwright';
-import { Auditoria } from '../auditoria/registro.js';
+import { AuditoriaPostgres } from '../auditoria/registro.js';
 import { erroNavegador, ForjaErro } from '../comum/erros.js';
 import { mensagemSegura } from '../comum/mascara.js';
 import { carregarConfigBanco } from '../config/banco.js';
@@ -42,7 +42,6 @@ interface Registro {
 
 async function principal(): Promise<void> {
   const cfg = await carregarConfigBanco();
-  await cfg.app.destroy(); // a calibração não consulta o banco depois de subir
   const pasta = path.join(cfg.caminhos.capturas, `calibracao-opcoes-atributos-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   await fs.mkdir(pasta, { recursive: true });
   const sessao = new SessaoNavegador({
@@ -257,9 +256,10 @@ async function principal(): Promise<void> {
 
   const resumo = { pasta, tabela: TABELA, campo: CAMPO, erro, achados, cliques, etapas: registros.map((r) => path.basename(r.png)) };
   await fs.writeFile(path.join(pasta, 'resumo.json'), JSON.stringify(resumo, null, 2));
-  const aud = new Auditoria(cfg.caminhos.bancoAuditoria);
+  const aud = new AuditoriaPostgres(cfg.app, cfg.empresaId);
   try {
-    aud.registrar({
+    await aud.registrar({
+      usuarioId: cfg.usuarioId,
       usuario: cfg.login,
       perfil: cfg.arquivo.usuarios[cfg.login],
       ambiente: cfg.ambiente,
@@ -270,7 +270,7 @@ async function principal(): Promise<void> {
       capturaPath: pasta,
     });
   } finally {
-    aud.fechar();
+    await cfg.app.destroy();
   }
   process.stdout.write(`${JSON.stringify({ ...resumo, achados: { ...achados } }, null, 2)}\n`);
   if (erro) process.exitCode = 1;

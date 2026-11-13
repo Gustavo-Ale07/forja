@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Auditoria } from '../src/auditoria/registro.js';
+import { linhaAuditoria, type Auditoria, type EventoNovo } from '../src/auditoria/registro.js';
 import { esquemaConfig, type ConfigArquivo } from '../src/config/esquema.js';
 import { Confirmacoes } from '../src/ferramentas/confirmacoes.js';
 import { registroFerramentas } from '../src/ferramentas/index.js';
@@ -101,7 +101,7 @@ export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; ag
   fs.mkdirSync(planos);
   const gw = new GatewayFalso();
   const construtor = new ConstrutorFalso(gw.base);
-  const auditoria = new Auditoria(':memory:');
+  const auditoria = new AuditoriaMemoria();
   const encerrados: string[] = [];
   const ferramentas = registroFerramentas();
   const config = o.config ?? configBase();
@@ -123,8 +123,51 @@ export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; ag
     encerrar: (m) => encerrados.push(m),
     ...(o.identidade ? { identidade: o.identidade } : {}),
   });
-  const eventos = () => auditoria.listarEntre('0000', '9999');
+  const eventos = () => auditoria.linhas;
   return { raiz, planos, gw, construtor, auditoria, executor, encerrados, eventos, ferramentas };
 }
 
 export const textoDe = (r: { content: Array<{ text: string }> }) => r.content.map((c) => c.text).join('\n');
+
+/** Linha como fica na tabela (JSONs em texto, já mascarados). */
+export interface LinhaMemoria {
+  usuario_id: string | null;
+  usuario: string | null;
+  perfil: string | null;
+  ambiente: string;
+  ferramenta: string;
+  parametros: string;
+  plano_id: string | null;
+  passo_id: number | null;
+  resultado: EventoNovo['resultado'];
+  motivo: string;
+  antes_json: string | null;
+  depois_json: string | null;
+  captura_path: string | null;
+}
+
+/** Auditoria dos testes: mesma máscara e mesma regra de "passo executado" da do Postgres. */
+export class AuditoriaMemoria implements Auditoria {
+  readonly linhas: LinhaMemoria[] = [];
+  async registrar(ev: EventoNovo): Promise<void> {
+    const l = linhaAuditoria(ev);
+    this.linhas.push({
+      usuario_id: l.usuarioId ?? null,
+      usuario: l.usuario ?? null,
+      perfil: l.perfil ?? null,
+      ambiente: l.ambiente,
+      ferramenta: l.ferramenta,
+      parametros: l.parametrosJson,
+      plano_id: l.planoId ?? null,
+      passo_id: l.passoId ?? null,
+      resultado: l.resultado,
+      motivo: l.motivo,
+      antes_json: l.antesJson ?? null,
+      depois_json: l.depoisJson ?? null,
+      captura_path: l.capturaPath ?? null,
+    });
+  }
+  async passoExecutado(planoId: string, passoId: number): Promise<boolean> {
+    return this.linhas.some((l) => l.plano_id === planoId && l.passo_id === passoId && l.resultado === 'aceito' && ['executado', 'já existia'].includes(l.motivo));
+  }
+}

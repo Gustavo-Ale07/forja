@@ -83,13 +83,14 @@ export function criarIdentidade(
     if (s.empresaId !== empresaId) {
       throw new ForjaErro('SEM_SESSAO', 'A sessão atual é de outra empresa. Reinicie o servidor MCP para trocar de empresa.');
     }
-    return { usuario: s.login, config: montarConfigArquivo(await lerConfigEmpresa(app, empresaId), ambiente) };
+    return { usuario: s.login, usuarioId: s.usuarioId, config: montarConfigArquivo(await lerConfigEmpresa(app, empresaId), ambiente) };
   };
 }
 
 export interface ConfigServidor {
   app: Db;
   empresaId: string;
+  usuarioId: string;
   login: string;
   ambiente: string;
   arquivo: ConfigArquivo;
@@ -164,6 +165,7 @@ export async function carregarConfigBanco(
     return {
       app,
       empresaId: s.empresaId,
+      usuarioId: s.usuarioId,
       login: s.login,
       ambiente,
       arquivo,

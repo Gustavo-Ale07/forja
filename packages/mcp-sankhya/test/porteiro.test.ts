@@ -82,6 +82,14 @@ describe('regra 2 – plano aprovado', () => {
     const { dir, params } = comPlano('criar_tabela_ad', tabelaOk);
     recusa(avaliar(def('criar_tabela_ad'), params, depsPorteiro({ dir, executados: new Set(['p1#1']) })), 2, /já foi executado/);
   });
+  it('aprovado por quem não é (ou deixou de ser) usuário ativo da empresa: recusado', () => {
+    const { dir, params } = comPlano('criar_tabela_ad', tabelaOk);
+    const config = configBase((c) => {
+      delete c.usuarios.fulano;
+      c.usuarios.outro = 'desenvolvedor';
+    });
+    recusa(avaliar(def('criar_tabela_ad'), params, depsPorteiro({ dir, config, usuario: 'outro' })), 2, /não é usuário ativo/);
+  });
   it('plano assinado e parâmetros exatos: aceito', () => {
     const { dir, params } = comPlano('criar_tabela_ad', tabelaOk);
     const d = avaliar(def('criar_tabela_ad'), params, depsPorteiro({ dir }));

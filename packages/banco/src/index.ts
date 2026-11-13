@@ -58,3 +58,4 @@ export {
   type SessaoLocal,
 } from './sessao-local.js';
 export { contextoCredencial, gravarCredencial, lerCredencial, tiposCadastrados, TIPOS_CREDENCIAL } from './credenciais.js';
+export { listarChamadas, passoExecutado, registrarChamada, type ChamadaGravada, type ChamadaNova } from './auditoria.js';

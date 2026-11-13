@@ -19,6 +19,5 @@ export const caminhos = (raiz = raizForja()) => ({
   configLocal: path.join(raiz, 'forja.config.local.yaml'),
   planos: path.join(raiz, 'planos'),
   auditoria: path.join(raiz, 'auditoria'),
-  bancoAuditoria: path.join(raiz, 'auditoria', 'forja.db'),
   capturas: path.join(raiz, 'auditoria', 'capturas'),
 });

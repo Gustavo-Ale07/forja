@@ -185,6 +185,64 @@ export async function lerAmbiente(db: Db, cofre: Cofre, empresaId: string): Prom
   });
 }
 
+/** Config de permissões da empresa como o porteiro precisa (sem ambiente nem credenciais). */
+export interface ConfigEmpresa {
+  fuso: string;
+  perfis: PerfilImportado[];
+  /** login → nome do perfil (só usuários ativos) */
+  usuarios: Record<string, string>;
+  regras: ConfigImportada['regras'];
+  instancias: Record<string, string>;
+}
+
+/** Lê perfis, permissões, usuários, regras e instâncias da empresa (papel app, sob RLS). */
+export async function lerConfigEmpresa(db: Db, empresaId: string): Promise<ConfigEmpresa> {
+  return comEmpresa(db, empresaId, async (trx) => {
+    const empresa = await trx.selectFrom('empresa').select('fuso').where('id', '=', empresaId).executeTakeFirst();
+    if (!empresa) throw new ErroAdmin('Empresa não encontrada.');
+    const ambientes = new Map((await trx.selectFrom('ambiente').select(['id', 'nome']).execute()).map((a) => [a.id, a.nome]));
+    const perfisLinhas = await trx.selectFrom('perfil').select(['id', 'nome', 'descricao']).orderBy('nome').execute();
+    const vinculos = await trx.selectFrom('perfil_ambiente').select(['perfil_id', 'ambiente_id']).execute();
+    const permissoes = await trx.selectFrom('perfil_permissao').select(['perfil_id', 'ambiente_id', 'acao', 'nivel']).execute();
+    const bloqueadas = await trx.selectFrom('perfil_tabela_bloqueada').select(['perfil_id', 'padrao']).orderBy('padrao').execute();
+
+    const perfis: PerfilImportado[] = perfisLinhas.map((p) => {
+      const acoes: Record<string, Record<string, Nivel>> = {};
+      for (const x of permissoes.filter((x) => x.perfil_id === p.id)) {
+        const amb = ambientes.get(x.ambiente_id);
+        if (amb) (acoes[amb] ??= {})[x.acao] = x.nivel;
+      }
+      return {
+        nome: p.nome,
+        ...(p.descricao ? { descricao: p.descricao } : {}),
+        ambientes: vinculos.filter((v) => v.perfil_id === p.id).flatMap((v) => ambientes.get(v.ambiente_id) ?? []),
+        acoes,
+        tabelasBloqueadas: bloqueadas.filter((b) => b.perfil_id === p.id).map((b) => b.padrao),
+      };
+    });
+
+    const nomePerfil = new Map(perfisLinhas.map((p) => [p.id, p.nome]));
+    const usuarios: Record<string, string> = {};
+    for (const u of await trx.selectFrom('usuario').select(['login', 'perfil_id']).where('ativo', '=', true).execute()) {
+      const n = nomePerfil.get(u.perfil_id);
+      if (n) usuarios[u.login] = n;
+    }
+
+    const r = await trx.selectFrom('regra').selectAll().executeTakeFirst();
+    const regras: ConfigImportada['regras'] = {
+      ...(r?.horario_inicio && r.horario_fim ? { horario: { inicio: r.horario_inicio.slice(0, 5), fim: r.horario_fim.slice(0, 5), dias: r.dias } } : {}),
+      limiteRegistros: r?.limite_registros ?? 50,
+      leituraBloqueada: r?.leitura_bloqueada ?? ['TSI*'],
+      gravacaoNativaLiberada: r?.gravacao_nativa_liberada ?? [],
+    };
+
+    const instancias: Record<string, string> = {};
+    for (const i of await trx.selectFrom('instancia_tabela').select(['tabela', 'instancia']).execute()) instancias[i.tabela] = i.instancia;
+
+    return { fuso: empresa.fuso, perfis, usuarios, regras, instancias };
+  });
+}
+
 // ---------------------------------------------------------------- importar config
 
 export interface PerfilImportado {

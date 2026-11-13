@@ -10,7 +10,7 @@ import { criarCapturador } from '../src/navegador/capturas.js';
 import { ConstrutorFalso } from '../src/navegador/falso.js';
 import { aprovarPasso, assinarPlano, gravarPlano, lerPlano, type Plano } from '../src/porteiro/planos.js';
 import type { DependenciasPorteiro } from '../src/porteiro/porteiro.js';
-import { Executor } from '../src/servidor/executor.js';
+import { Executor, type Identidade } from '../src/servidor/executor.js';
 
 export const CHAVE = 'chave-de-teste-com-mais-de-32-caracteres-0123456789';
 /** Quarta-feira, 11/11/2026, 10:00 em São Paulo. */
@@ -95,7 +95,7 @@ export function depsPorteiro(o: Partial<DependenciasPorteiro> & { dir?: string; 
   };
 }
 
-export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; agora?: Date } = {}) {
+export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; agora?: Date; identidade?: () => Promise<Identidade> } = {}) {
   const raiz = pastaTemporaria();
   const planos = path.join(raiz, 'planos');
   fs.mkdirSync(planos);
@@ -121,6 +121,7 @@ export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; ag
     lerPlano: (id) => lerPlano(planos, id),
     agora: () => o.agora ?? QUARTA_10H,
     encerrar: (m) => encerrados.push(m),
+    ...(o.identidade ? { identidade: o.identidade } : {}),
   });
   const eventos = () => auditoria.listarEntre('0000', '9999');
   return { raiz, planos, gw, construtor, auditoria, executor, encerrados, eventos, ferramentas };

@@ -67,6 +67,8 @@ cd C:\Dev\forja
 claude mcp add forja-sankhya -- node packages/mcp-sankhya/dist/index.js
 ```
 
+Na Fase 2, o servidor só sobe depois de `pnpm forja-admin login` (veja a seção 7).
+
 ## 4. Como se trabalha (planos e aprovação)
 
 | Ferramenta | Nível (perfil `desenvolvedor`) | Observação |
@@ -144,3 +146,39 @@ Detalhes da auditoria:
 - **A proteção definitiva da chave de aprovação vem quando a aprovação sair para a interface web.**
   - A chave vai ficar só no servidor de aprovação, fora da máquina e do alcance do agente.
   - A assinatura passa a exigir login do aprovador.
+
+## 7. Fase 2: banco Postgres, login e sessão
+
+A partir da Fase 2, o servidor MCP lê **tudo do Postgres**: usuário, perfis, regras da empresa, ambiente `teste` e credenciais (cifradas com AES-256-GCM). O `forja.config.local.yaml` e as variáveis `FORJA_TESTE_*` só servem para o `forja-admin importar-config`.
+
+Do `.env`, o servidor usa só:
+
+| Variável | O que é |
+|---|---|
+| `FORJA_DATABASE_URL` | Conexão com o papel `forja_app` (sujeito ao RLS). |
+| `FORJA_CHAVE_MESTRA` | 32 bytes em hex (64 caracteres) que decifram as credenciais no banco. Gere com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
+| `FORJA_CHAVE_APROVACAO` | A mesma da Fase 1 (assinatura dos planos). |
+
+### Sessão
+
+O servidor só sobe com uma sessão válida. Antes de iniciar o Claude Code, rode **no seu terminal**:
+
+```powershell
+pnpm forja-admin login     # pede login, senha e o código TOTP do aplicativo
+pnpm forja-admin logout    # encerra a sessão no banco e apaga o arquivo local
+```
+
+- A sessão vale 12 horas. O banco guarda só o hash do token.
+- O arquivo da sessão fica **fora do repositório**: `%APPDATA%\forja\sessao` no Windows e `~/.config/forja/sessao` (ou `$XDG_CONFIG_HOME/forja/sessao`) no resto. O `login` mostra o caminho exato. O arquivo antigo em `.forja/sessao` é apagado no próximo `login` ou `logout`.
+- A cada chamada de ferramenta, o servidor confere de novo a sessão e relê as permissões no banco:
+  - logout, expiração e troca de senha ou TOTP derrubam a próxima chamada (regra 1);
+  - mudar o perfil de alguém vale na hora, sem reiniciar.
+- Trocar de empresa exige reiniciar o servidor MCP.
+
+### Limites conhecidos da Fase 2
+
+- **A barreira real contra o agente aprovar um plano sozinho é o código TOTP pedido a cada assinatura** (etapa 6 da Fase 2).
+  - Sem o aplicativo autenticador, quem ler a chave de aprovação não consegue assinar.
+- **A separação completa só vem quando o servidor rodar fora desta máquina.**
+  - Hoje a `FORJA_CHAVE_MESTRA` e o `.env` ficam na mesma máquina em que o agente roda.
+  - As regras de deny do `.claude/settings.json` (inclusive as da pasta da sessão) bloqueiam Read, Edit e Write, mas não comandos de shell indiretos. Continue revisando os comandos que o Claude Code pede para rodar.

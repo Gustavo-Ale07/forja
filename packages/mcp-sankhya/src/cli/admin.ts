@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import {
+  apagarSessaoLegada,
   apagarSessaoLocal,
+  arquivoSessao,
   autenticar,
   buscarLogin,
   CofreAesGcm,
@@ -33,8 +35,8 @@ import {
 } from '@forja/banco';
 import { mensagemSegura, registrarSegredo } from '../comum/mascara.js';
 import { caminhos } from '../config/caminhos.js';
-import { paraConfigImportada } from '../config/importar.js';
-import { lerConfigArquivo, lerEnv } from '../config/index.js';
+import { lerConfigParaImportar } from '../config/importar.js';
+import { lerEnv } from '../config/index.js';
 import { usuarioBancoConfere, verificarAmbiente } from '../config/trava-producao.js';
 import { criarClienteReal } from '../gateway/cliente.js';
 import { comoObjetos, SQL } from '../sankhya/dicionario.js';
@@ -101,12 +103,15 @@ async function login(): Promise<void> {
     if (anterior) await revogarSessao(app, anterior.token);
     const s = await criarSessao(app, u);
     gravarSessaoLocal({ token: s.token, login: u.login, expira_em: s.expiraEm.toISOString() });
+    apagarSessaoLegada();
     console.log(`Sessão aberta para ${u.login} até ${s.expiraEm.toLocaleString('pt-BR')}.`);
+    console.log(`Arquivo da sessão: ${arquivoSessao()}`);
   });
 }
 
 async function logout(): Promise<void> {
   const local = lerSessaoLocal();
+  if (apagarSessaoLegada()) console.log('Arquivo de sessão antigo (.forja/sessao no repositório) apagado.');
   if (!local) {
     console.log('Nenhuma sessão local.');
     return;
@@ -310,11 +315,7 @@ async function ambiente(sub: string | undefined, args: string[]): Promise<void> 
 
 async function importar(args: string[]): Promise<void> {
   const v = opcoes(args, { empresa: { type: 'string' } });
-  const cam = caminhos();
-  const arquivo = lerConfigArquivo(cam.config, cam.configLocal);
-  const { config, problemas } = paraConfigImportada(arquivo, env);
-  if (!config) throw new Error(`Importação recusada pela trava de produção:\n- ${problemas.join('\n- ')}`);
-  for (const s of Object.values(config.credenciais)) registrarSegredo(s);
+  const config = lerConfigParaImportar();
   const c = cofre();
   const dono = bancoDono();
   await usar([dono], async () => {

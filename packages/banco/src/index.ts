@@ -35,9 +35,11 @@ export {
   gravarCredenciais,
   importarConfig,
   lerAmbiente,
+  lerConfigEmpresa,
   listarEmpresas,
   normalizarLogin,
   type AmbienteComCredenciais,
+  type ConfigEmpresa,
   type ConfigImportada,
   type Credenciais,
   type DadosAmbiente,
@@ -45,5 +47,14 @@ export {
   type PerfilImportado,
   type ResumoImportacao,
 } from './admin.js';
-export { apagarSessaoLocal, arquivoSessao, gravarSessaoLocal, lerSessaoLocal, type SessaoLocal } from './sessao-local.js';
+export {
+  apagarSessaoLegada,
+  apagarSessaoLocal,
+  arquivoSessao,
+  arquivoSessaoLegado,
+  gravarSessaoLocal,
+  lerSessaoLocal,
+  pastaConfigUsuario,
+  type SessaoLocal,
+} from './sessao-local.js';
 export { contextoCredencial, gravarCredencial, lerCredencial, tiposCadastrados, TIPOS_CREDENCIAL } from './credenciais.js';

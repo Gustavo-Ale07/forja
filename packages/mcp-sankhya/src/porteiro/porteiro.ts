@@ -109,10 +109,10 @@ export function avaliar(def: DefinicaoPorteiro, bruto: unknown, dep: Dependencia
   try {
     // 1. Usuário e perfil
     const usuario = dep.usuario?.trim();
-    if (!usuario) throw new Recusa(1, 'Usuário não identificado (FORJA_USUARIO vazio).');
+    if (!usuario) throw new Recusa(1, 'Usuário não identificado (sem sessão: pnpm forja-admin login).');
     ctx.usuario = usuario;
     const perfilNome = dep.config.usuarios[usuario];
-    if (!perfilNome) throw new Recusa(1, `Usuário "${usuario}" não está cadastrado em forja.config.yaml.`);
+    if (!perfilNome) throw new Recusa(1, `Usuário "${usuario}" não está cadastrado (ou está inativo) na empresa.`);
     const perfil = dep.config.perfis[perfilNome];
     if (!perfil) throw new Recusa(1, `Perfil "${perfilNome}" do usuário "${usuario}" não existe.`);
     ctx.perfil = perfilNome;

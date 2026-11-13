@@ -8,6 +8,7 @@ import {
   exigirEmpresa,
   importarConfig,
   lerAmbiente,
+  lerConfigEmpresa,
   listarEmpresas,
   type ConfigImportada,
 } from '../src/admin.js';
@@ -131,6 +132,33 @@ describe('importar config', () => {
 
     const amb = await lerAmbiente(app, cofre, e.id);
     expect(amb).toMatchObject({ usuarioBancoEsperado: 'USUARIO_TESTE', credenciais: { web_senha: 'senha-falsa', gateway_token: 'xtoken-falso' } });
+  });
+
+  it('lerConfigEmpresa (papel app) devolve o que foi importado, sem outras empresas', async () => {
+    const slug = `cfg-${sufixo()}`;
+    const e = await criarEmpresa(dono, { nome: 'Config', slug });
+    const outra = await criarEmpresa(dono, { nome: 'Outra', slug: `out-${sufixo()}` });
+    await importarConfig(dono, cofre, e.id, config(slug));
+    await importarConfig(dono, cofre, outra.id, config(outra.slug));
+    const c = await lerConfigEmpresa(app, e.id);
+    expect(c).toEqual({
+      fuso: 'America/Sao_Paulo',
+      perfis: [
+        {
+          nome: 'desenvolvedor',
+          descricao: 'Dev',
+          ambientes: ['teste'],
+          acoes: { teste: { consultar_sql: 'livre', gravar_registros: 'com_aprovacao' } },
+          tabelasBloqueadas: ['TGFFIN'],
+        },
+      ],
+      usuarios: { [`dev_${slug}`]: 'desenvolvedor' },
+      regras: { horario: { inicio: '07:00', fim: '20:00', dias: [1, 2, 3, 4, 5] }, limiteRegistros: 50, leituraBloqueada: ['TSI*'], gravacaoNativaLiberada: [] },
+      instancias: { AD_EXEMPLO: 'Exemplo' },
+    });
+    // usuário desativado some do mapa
+    await comEmpresa(dono, e.id, (trx) => trx.updateTable('usuario').set({ ativo: false }).execute());
+    expect((await lerConfigEmpresa(app, e.id)).usuarios).toEqual({});
   });
 
   it('rodar de novo atualiza e não duplica; credenciais ausentes ficam como estavam', async () => {

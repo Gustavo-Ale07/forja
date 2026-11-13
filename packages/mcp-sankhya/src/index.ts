@@ -3,7 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Auditoria } from './auditoria/registro.js';
 import { log } from './comum/log.js';
 import { mensagemSegura } from './comum/mascara.js';
-import { carregarConfig } from './config/index.js';
+import { carregarConfigBanco } from './config/banco.js';
 import { Confirmacoes } from './ferramentas/confirmacoes.js';
 import { registroFerramentas } from './ferramentas/index.js';
 import { criarClienteReal } from './gateway/cliente.js';
@@ -18,8 +18,8 @@ import { criarServidor } from './servidor/servidor.js';
 process.env.TZ ??= 'America/Sao_Paulo';
 
 async function principal(): Promise<void> {
-  // Trava de produção: qualquer problema aqui = o servidor não inicia.
-  const cfg = carregarConfig();
+  // Trava de produção + sessão válida (pnpm forja-admin login): qualquer problema = o servidor não inicia.
+  const cfg = await carregarConfigBanco();
   const auditoria = new Auditoria(cfg.caminhos.bancoAuditoria);
   const gateway = criarClienteReal({
     gatewayUrl: cfg.configAmbiente.gateway_url,
@@ -54,6 +54,7 @@ async function principal(): Promise<void> {
       /* ignora */
     }
     auditoria.fechar();
+    await cfg.app.destroy().catch(() => undefined);
     process.exit(codigo);
   };
 
@@ -63,7 +64,8 @@ async function principal(): Promise<void> {
     config: cfg.arquivo,
     ambiente: cfg.ambiente,
     usuarioBancoEsperado: cfg.configAmbiente.usuario_banco_esperado,
-    usuario: cfg.usuarioForja,
+    usuario: cfg.login,
+    identidade: cfg.identidade,
     chaveAprovacao: cfg.chaveAprovacao,
     diretorioPlanos: cfg.caminhos.planos,
     auditoria,
@@ -80,7 +82,7 @@ async function principal(): Promise<void> {
   process.on('SIGINT', () => void encerrar(0));
   process.on('SIGTERM', () => void encerrar(0));
   await server.connect(new StdioServerTransport());
-  log.info({ ambiente: cfg.ambiente, host: cfg.configAmbiente.host_permitido, usuario: cfg.usuarioForja }, 'forja-sankhya pronto');
+  log.info({ ambiente: cfg.ambiente, host: cfg.configAmbiente.host_permitido, usuario: cfg.login }, 'forja-sankhya pronto');
 }
 
 principal().catch((e: unknown) => {

@@ -16,6 +16,11 @@ export interface RespostaFerramenta {
   content: Array<{ type: 'text'; text: string }>;
 }
 
+export interface Identidade {
+  usuario: string;
+  config: ConfigArquivo;
+}
+
 export interface DependenciasExecutor {
   ferramentas: Map<string, Ferramenta>;
   config: ConfigArquivo;
@@ -29,6 +34,11 @@ export interface DependenciasExecutor {
   construtor: () => Construtor;
   novoCapturador: (ferramenta: string) => Capturador;
   confirmacoes: Confirmacoes;
+  /**
+   * Resolvida a cada chamada (sessão local + permissões no banco). Quando existe, substitui
+   * `usuario` e `config`. Lançar = recusa da regra 1 (ex.: sessão expirada ou revogada).
+   */
+  identidade?: () => Promise<Identidade>;
   lerPlano: (id: string) => Plano | undefined;
   agora?: () => Date;
   /** Chamado quando a base não é a esperada. O servidor real encerra o processo. */
@@ -71,11 +81,11 @@ export class Executor {
     this.agora = d.agora ?? (() => new Date());
   }
 
-  private depsPorteiro(): DependenciasPorteiro {
+  private depsPorteiro(config: ConfigArquivo, usuario: string | undefined): DependenciasPorteiro {
     return {
-      config: this.d.config,
+      config,
       ambiente: this.d.ambiente,
-      usuario: this.d.usuario,
+      usuario,
       chaveAprovacao: this.d.chaveAprovacao,
       agora: this.agora,
       lerPlano: this.d.lerPlano,
@@ -100,8 +110,18 @@ export class Executor {
   }
 
   async chamar(nome: string, bruto: unknown): Promise<RespostaFerramenta> {
-    const usuario = this.d.usuario;
-    const perfil = usuario ? this.d.config.usuarios[usuario] : undefined;
+    let usuario = this.d.usuario;
+    let config = this.d.config;
+    if (this.d.identidade) {
+      try {
+        ({ usuario, config } = await this.d.identidade());
+      } catch (e) {
+        const motivo = `[regra 1 – ${NOMES_REGRAS[1]}] ${mensagemSegura(e)}`;
+        this.d.auditoria.registrar({ ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {}, resultado: 'recusado', motivo });
+        return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
+      }
+    }
+    const perfil = usuario ? config.usuarios[usuario] : undefined;
     const base = { usuario, perfil, ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {} };
 
     if (this.travado) {
@@ -116,7 +136,7 @@ export class Executor {
       return texto(`RECUSADO ${motivo} Nada foi enviado ao Sankhya.`, true);
     }
 
-    const dec = avaliar(def, bruto, this.depsPorteiro());
+    const dec = avaliar(def, bruto, this.depsPorteiro(config, usuario));
     const ids = { planoId: dec.planoId, passoId: dec.passoId };
     if (!dec.aceito) {
       const motivo = `[regra ${dec.regra} – ${NOMES_REGRAS[dec.regra]}] ${dec.motivo}`;
@@ -140,7 +160,7 @@ export class Executor {
     const ctx: ContextoExecucao = {
       gateway: this.d.gateway,
       construtor: this.d.construtor,
-      config: this.d.config,
+      config,
       ambiente: dec.ambiente,
       usuario: dec.usuario,
       planoId: dec.planoId,

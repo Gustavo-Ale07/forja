@@ -22,7 +22,15 @@ import {
   revogarSessao,
   type SessaoValida,
 } from '../src/login.js';
-import { apagarSessaoLocal, gravarSessaoLocal, lerSessaoLocal } from '../src/sessao-local.js';
+import { raizRepositorio } from '../src/env.js';
+import {
+  apagarSessaoLegada,
+  apagarSessaoLocal,
+  arquivoSessao,
+  arquivoSessaoLegado,
+  gravarSessaoLocal,
+  lerSessaoLocal,
+} from '../src/sessao-local.js';
 import { criarEmpresaCompleta, type EmpresaDeTeste } from './ajuda.js';
 import { URL_APP, URL_DONO } from './urls.js';
 
@@ -319,6 +327,26 @@ describe('arquivo local da sessão', () => {
       expect(lerSessaoLocal(arq)).toBeUndefined();
       apagarSessaoLocal(arq);
       expect(fs.existsSync(arq)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fica fora do repositório: %APPDATA%\\forja no Windows, ~/.config/forja no resto', () => {
+    expect(arquivoSessao({ APPDATA: 'C:\\Users\\x\\AppData\\Roaming' }, 'win32')).toBe(path.join('C:\\Users\\x\\AppData\\Roaming', 'forja', 'sessao'));
+    expect(arquivoSessao({ XDG_CONFIG_HOME: '/home/x/.cfg' }, 'linux')).toBe(path.join('/home/x/.cfg', 'forja', 'sessao'));
+    expect(arquivoSessao({}, 'darwin')).toBe(path.join(os.homedir(), '.config', 'forja', 'sessao'));
+    expect(arquivoSessao().startsWith(raizRepositorio())).toBe(false);
+  });
+
+  it('apaga o arquivo do local antigo sem ler', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-legado-'));
+    try {
+      expect(apagarSessaoLegada(arquivoSessaoLegado(dir))).toBe(false);
+      fs.mkdirSync(path.join(dir, '.forja'));
+      fs.writeFileSync(arquivoSessaoLegado(dir), 'x');
+      expect(apagarSessaoLegada(arquivoSessaoLegado(dir))).toBe(true);
+      expect(fs.existsSync(arquivoSessaoLegado(dir))).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

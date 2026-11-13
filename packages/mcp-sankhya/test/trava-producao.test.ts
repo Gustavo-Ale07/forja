@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { carregarConfig } from '../src/config/index.js';
+import { lerConfigParaImportar as carregarConfig } from '../src/config/importar.js';
 import { usuarioBancoConfere } from '../src/config/trava-producao.js';
 import { SessaoNavegador } from '../src/navegador/sessao.js';
 import { pastaTemporaria } from './ajuda.js';
@@ -49,7 +49,7 @@ describe('forja.config.local.yaml por cima do genérico', () => {
   };
 
   it('sem o local, o genérico não casa com a URL real: recusa iniciar', () => {
-    expect(() => carregarConfig(raiz(GENERICO))).toThrow(/recusou iniciar/);
+    expect(() => carregarConfig(raiz(GENERICO))).toThrow(/recusada/);
   });
 
   it('o local troca host, usuário de banco e usuários; o resto vem do genérico', () => {
@@ -58,11 +58,11 @@ describe('forja.config.local.yaml por cima do genérico', () => {
         'ambientes:\n  teste:\n    host_permitido: minha-base-teste.sankhyacloud.com.br\n    usuario_banco_esperado: USUARIO_TESTE\nusuarios:\n  fulano: dev\n',
       ),
     );
-    expect(c.configAmbiente.host_permitido).toBe('minha-base-teste.sankhyacloud.com.br');
-    expect(c.configAmbiente.usuario_banco_esperado).toBe('USUARIO_TESTE');
-    expect(c.arquivo.usuarios.fulano).toBe('dev');
-    expect(c.arquivo.fuso).toBe('America/Sao_Paulo');
-    expect(c.arquivo.perfis.dev).toBeDefined();
+    expect(c.ambiente.hostPermitido).toBe('minha-base-teste.sankhyacloud.com.br');
+    expect(c.ambiente.usuarioBancoEsperado).toBe('USUARIO_TESTE');
+    expect(c.usuarios.fulano).toBe('dev');
+    expect(c.fuso).toBe('America/Sao_Paulo');
+    expect(c.perfis.map((p) => p.nome)).toEqual(['dev']);
   });
 
   it('a trava de produção vale para o resultado mesclado', () => {
@@ -75,15 +75,15 @@ describe('forja.config.local.yaml por cima do genérico', () => {
   });
 });
 
-describe('trava de produção ao iniciar', () => {
+describe('trava de produção ao importar (YAML + .env)', () => {
   it('configuração de teste correta inicia', () => {
     const c = carregarConfig(raiz());
-    expect(c.ambiente).toBe('teste');
-    expect(c.configAmbiente.host_permitido).toBe('minha-base-teste.sankhyacloud.com.br');
+
+    expect(c.ambiente.hostPermitido).toBe('minha-base-teste.sankhyacloud.com.br');
   });
 
   it('FORJA_TESTE_URL apontando para produção: recusa iniciar', () => {
-    expect(() => carregarConfig(raiz(CONFIG, { ...ENV, FORJA_TESTE_URL: PRODUCAO }))).toThrow(/recusou iniciar[\s\S]*minha-base.sankhyacloud\.com\.br/);
+    expect(() => carregarConfig(raiz(CONFIG, { ...ENV, FORJA_TESTE_URL: PRODUCAO }))).toThrow(/recusada[\s\S]*minha-base.sankhyacloud\.com\.br/);
   });
 
   it('host_permitido de produção no config: recusa iniciar', () => {
@@ -100,10 +100,6 @@ describe('trava de produção ao iniciar', () => {
     expect(() => carregarConfig(raiz(CONFIG, { ...ENV, FORJA_PROD_URL: PRODUCAO }))).toThrow(/FORJA_PROD_URL/);
   });
 
-  it('FORJA_AMBIENTE diferente de teste: recusa iniciar', () => {
-    expect(() => carregarConfig(raiz(CONFIG, { ...ENV, FORJA_AMBIENTE: 'producao' }))).toThrow(/só "teste"/);
-  });
-
   it('http sem TLS e URL com credencial: recusa', () => {
     expect(() => carregarConfig(raiz(CONFIG, { ...ENV, FORJA_TESTE_URL: 'http://minha-base-teste.sankhyacloud.com.br' }))).toThrow(/https/);
     expect(() => carregarConfig(raiz(CONFIG, { ...ENV, FORJA_TESTE_URL: 'https://u:s@minha-base-teste.sankhyacloud.com.br' }))).toThrow(/usuário\/senha/);
@@ -111,19 +107,7 @@ describe('trava de produção ao iniciar', () => {
 
   it('gateway fora da lista permitida: recusa', () => {
     const cfg = CONFIG.replace('usuario_banco_esperado: USUARIO_TESTE', 'usuario_banco_esperado: USUARIO_TESTE\n    gateway_url: https://gateway.malicioso.com');
-    expect(() => carregarConfig(raiz(cfg))).toThrow(/gateway_hosts_permitidos/);
-  });
-
-  it('credencial ausente e chave curta: recusa, sem vazar segredo na mensagem', () => {
-    let msg = '';
-    try {
-      carregarConfig(raiz(CONFIG, { ...ENV, FORJA_TESTE_SENHA: '', FORJA_CHAVE_APROVACAO: 'curta' }));
-    } catch (e) {
-      msg = (e as Error).message;
-    }
-    expect(msg).toMatch(/FORJA_TESTE_SENHA não definido/);
-    expect(msg).toMatch(/32 caracteres/);
-    expect(msg).not.toContain('segredo-falso-456');
+    expect(() => carregarConfig(raiz(cfg))).toThrow(/Gateway/);
   });
 
   it('navegador recusa URL de produção mesmo se chamado direto', () => {

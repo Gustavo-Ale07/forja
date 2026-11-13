@@ -1,5 +1,9 @@
 import type { ConfigImportada, Credenciais } from '@forja/banco';
+import { ForjaErro } from '../comum/erros.js';
+import { registrarSegredo } from '../comum/mascara.js';
+import { caminhos } from './caminhos.js';
 import type { ConfigArquivo } from './esquema.js';
+import { lerConfigArquivo, lerEnv } from './index.js';
 import { AMBIENTE_FASE1, verificarAmbiente, verificarTravaProducao } from './trava-producao.js';
 
 /** Variáveis do .env lidas (uma vez) pelo importar-config, por tipo de credencial no banco. */
@@ -63,4 +67,18 @@ export function paraConfigImportada(
       credenciais,
     },
   };
+}
+
+/**
+ * Lê forja.config.yaml (+ local) e o .env da raiz e converte para o banco. Qualquer problema da
+ * trava de produção = exceção, e nada é importado.
+ */
+export function lerConfigParaImportar(raiz?: string): ConfigImportada {
+  const c = caminhos(raiz);
+  const { config, problemas } = paraConfigImportada(lerConfigArquivo(c.config, c.configLocal), lerEnv(c.env));
+  if (!config || problemas.length) {
+    throw new ForjaErro('IMPORTACAO_RECUSADA', `Importação recusada pela trava de produção:\n- ${problemas.join('\n- ')}`);
+  }
+  for (const s of Object.values(config.credenciais)) registrarSegredo(s);
+  return config;
 }

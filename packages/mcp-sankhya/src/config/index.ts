@@ -3,10 +3,7 @@ import { parse as parseDotenv } from 'dotenv';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { ForjaErro } from '../comum/erros.js';
-import { registrarSegredo } from '../comum/mascara.js';
-import { caminhos } from './caminhos.js';
-import { esquemaConfig, type ConfigAmbiente, type ConfigArquivo } from './esquema.js';
-import { AMBIENTE_FASE1, verificarTravaProducao } from './trava-producao.js';
+import { esquemaConfig, type ConfigArquivo } from './esquema.js';
 
 export interface Credenciais {
   url: string;
@@ -15,18 +12,6 @@ export interface Credenciais {
   clientId: string;
   clientSecret: string;
   xToken: string;
-}
-
-export interface ConfigForja {
-  arquivo: ConfigArquivo;
-  ambiente: string;
-  configAmbiente: ConfigAmbiente;
-  usuarioForja: string | undefined;
-  /** Nunca sai deste processo: nem para log, nem para o modelo. */
-  credenciais: Credenciais;
-  chaveAprovacao: string;
-  navegadorVisivel: boolean;
-  caminhos: ReturnType<typeof caminhos>;
 }
 
 /** Lê o .env do repositório (sem poluir process.env) somado ao ambiente do processo. */
@@ -74,50 +59,3 @@ export function lerConfigArquivo(arquivo: string, arquivoLocal?: string): Config
 
 export const TAMANHO_MINIMO_CHAVE = 32;
 
-/**
- * Carrega tudo e aplica a trava de produção. Qualquer problema = exceção (o servidor não inicia).
- */
-export function carregarConfig(raiz?: string): ConfigForja {
-  const c = caminhos(raiz);
-  const env = lerEnv(c.env);
-  const arquivo = lerConfigArquivo(c.config, c.configLocal);
-
-  const problemas = verificarTravaProducao(arquivo, env);
-  const ambiente = env.FORJA_AMBIENTE ?? AMBIENTE_FASE1;
-  if (ambiente !== AMBIENTE_FASE1) problemas.push(`FORJA_AMBIENTE="${ambiente}": na fase 1 só "teste".`);
-
-  const exigir = (nome: string): string => {
-    const v = env[nome];
-    if (!v) problemas.push(`${nome} não definido no .env.`);
-    return v ?? '';
-  };
-  const credenciais: Credenciais = {
-    url: exigir('FORJA_TESTE_URL'),
-    usuario: exigir('FORJA_TESTE_USUARIO'),
-    senha: exigir('FORJA_TESTE_SENHA'),
-    clientId: exigir('FORJA_TESTE_GATEWAY_CLIENT_ID'),
-    clientSecret: exigir('FORJA_TESTE_GATEWAY_CLIENT_SECRET'),
-    xToken: exigir('FORJA_TESTE_GATEWAY_TOKEN'),
-  };
-  const chaveAprovacao = exigir('FORJA_CHAVE_APROVACAO');
-  if (chaveAprovacao && chaveAprovacao.length < TAMANHO_MINIMO_CHAVE) {
-    problemas.push(`FORJA_CHAVE_APROVACAO precisa ter pelo menos ${TAMANHO_MINIMO_CHAVE} caracteres.`);
-  }
-  for (const s of [credenciais.senha, credenciais.clientId, credenciais.clientSecret, credenciais.xToken, chaveAprovacao]) {
-    registrarSegredo(s);
-  }
-
-  if (problemas.length) {
-    throw new ForjaErro('INICIO_RECUSADO', `O servidor Forja recusou iniciar:\n- ${problemas.join('\n- ')}`);
-  }
-  return {
-    arquivo,
-    ambiente,
-    configAmbiente: arquivo.ambientes[ambiente]!,
-    usuarioForja: env.FORJA_USUARIO,
-    credenciais,
-    chaveAprovacao,
-    navegadorVisivel: env.FORJA_NAVEGADOR_VISIVEL === '1',
-    caminhos: c,
-  };
-}

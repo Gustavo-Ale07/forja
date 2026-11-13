@@ -19,7 +19,7 @@ import type { Frame, FrameLocator, Locator, Page } from 'playwright';
 import { Auditoria } from '../auditoria/registro.js';
 import { erroNavegador, ForjaErro } from '../comum/erros.js';
 import { mensagemSegura } from '../comum/mascara.js';
-import { carregarConfig } from '../config/index.js';
+import { carregarConfigBanco } from '../config/banco.js';
 import { SELETORES } from '../navegador/seletores.js';
 import { SessaoNavegador } from '../navegador/sessao.js';
 import { cliqueProibido, dumpNoNavegador } from './calibracao-comum.js';
@@ -41,7 +41,8 @@ interface Registro {
 }
 
 async function principal(): Promise<void> {
-  const cfg = carregarConfig();
+  const cfg = await carregarConfigBanco();
+  await cfg.app.destroy(); // a calibração não consulta o banco depois de subir
   const pasta = path.join(cfg.caminhos.capturas, `calibracao-opcoes-atributos-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   await fs.mkdir(pasta, { recursive: true });
   const sessao = new SessaoNavegador({
@@ -259,8 +260,8 @@ async function principal(): Promise<void> {
   const aud = new Auditoria(cfg.caminhos.bancoAuditoria);
   try {
     aud.registrar({
-      usuario: cfg.usuarioForja,
-      perfil: cfg.usuarioForja ? cfg.arquivo.usuarios[cfg.usuarioForja] : undefined,
+      usuario: cfg.login,
+      perfil: cfg.arquivo.usuarios[cfg.login],
       ambiente: cfg.ambiente,
       ferramenta: 'calibracao_opcoes_atributos',
       parametros: { tabela: TABELA, campo: CAMPO, linhaDigitada: LINHA, cliques },

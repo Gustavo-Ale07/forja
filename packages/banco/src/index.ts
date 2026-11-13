@@ -22,5 +22,27 @@ export {
   type SessaoValida,
   type UsuarioAutenticado,
 } from './login.js';
+export {
+  AMBIENTE_TESTE,
+  buscarEmpresa,
+  buscarLogin,
+  criarEmpresa,
+  criarUsuario,
+  ErroAdmin,
+  exigirEmpresa,
+  gravarAmbiente,
+  gravarCredenciais,
+  importarConfig,
+  lerAmbiente,
+  listarEmpresas,
+  normalizarLogin,
+  type AmbienteComCredenciais,
+  type ConfigImportada,
+  type Credenciais,
+  type DadosAmbiente,
+  type EmpresaResumo,
+  type PerfilImportado,
+  type ResumoImportacao,
+} from './admin.js';
 export { apagarSessaoLocal, arquivoSessao, gravarSessaoLocal, lerSessaoLocal, type SessaoLocal } from './sessao-local.js';
 export { contextoCredencial, gravarCredencial, lerCredencial, tiposCadastrados, TIPOS_CREDENCIAL } from './credenciais.js';

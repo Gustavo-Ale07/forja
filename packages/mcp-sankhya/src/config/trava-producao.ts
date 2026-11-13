@@ -77,6 +77,51 @@ export function verificarTravaProducao(config: ConfigArquivo, env: EnvRelevante)
   return problemas;
 }
 
+/** Hosts do Gateway Sankhya aceitos (fixos no código desde a fase 2). */
+export const GATEWAY_HOSTS_FIXOS: readonly string[] = ['api.sankhya.com.br', 'api.sandbox.sankhya.com.br'];
+
+export interface AmbienteParaTrava {
+  url: string;
+  hostPermitido: string;
+  gatewayUrl: string;
+}
+
+/**
+ * Trava de produção sobre os dados de um ambiente (vindos do banco ou do cadastro): host com marca
+ * de teste, URL https no host permitido e Gateway https num host conhecido. Lista vazia = ok.
+ */
+export function verificarAmbiente(a: AmbienteParaTrava): string[] {
+  const problemas: string[] = [];
+  const host = a.hostPermitido.toLowerCase();
+  if (!MARCA_NAO_PRODUCAO.test(host)) {
+    problemas.push(`host_permitido "${host}" não tem marca de ambiente de teste (teste/homolog/sandbox...) e parece produção.`);
+  }
+  let url: URL | undefined;
+  try {
+    url = new URL(a.url);
+  } catch {
+    problemas.push('URL do ambiente inválida.');
+  }
+  if (url) {
+    if (url.protocol !== 'https:') problemas.push('A URL do ambiente precisa usar https.');
+    if (url.hostname.toLowerCase() !== host) problemas.push(`A URL aponta para "${url.hostname}", mas o host permitido é "${host}".`);
+    if (url.username || url.password) problemas.push('A URL do ambiente não pode conter usuário/senha.');
+  }
+  let gw: URL | undefined;
+  try {
+    gw = new URL(a.gatewayUrl);
+  } catch {
+    problemas.push('gateway_url inválida.');
+  }
+  if (gw) {
+    if (gw.protocol !== 'https:') problemas.push('gateway_url precisa usar https.');
+    if (!GATEWAY_HOSTS_FIXOS.includes(gw.hostname.toLowerCase())) {
+      problemas.push(`gateway_url "${gw.hostname}" não é um host do Gateway Sankhya (${GATEWAY_HOSTS_FIXOS.join(', ')}).`);
+    }
+  }
+  return problemas;
+}
+
 /** Normaliza o resultado de SELECT USER FROM DUAL e compara com o esperado. */
 export function usuarioBancoConfere(obtido: unknown, esperado: string): boolean {
   return typeof obtido === 'string' && obtido.trim().toUpperCase() === esperado.trim().toUpperCase();

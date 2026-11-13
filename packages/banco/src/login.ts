@@ -88,12 +88,20 @@ export async function definirSenha(trx: Trx, usuarioId: string, senha: string): 
 }
 
 /** Grava o segredo TOTP cifrado no Cofre. `trx` com comEmpresa(empresa) e papel dono. */
-export async function definirTotp(trx: Trx, cofre: Cofre, empresaId: string, usuarioId: string, segredo: string): Promise<void> {
+export async function definirTotp(
+  trx: Trx,
+  cofre: Cofre,
+  empresaId: string,
+  usuarioId: string,
+  segredo: string,
+  /** Período do código usado para confirmar o cadastro: ele não serve depois para o login. */
+  ultimoPasso = 0,
+): Promise<void> {
   const { cifrado, versaoChave } = await cofre.cifrar(segredo, contextoTotp(empresaId, usuarioId));
   // versão da chave junto do texto, para o caso de rotação
   const r = await trx
     .updateTable('usuario')
-    .set({ totp_cifrado: `${versaoChave}:${cifrado}`, totp_ultimo_passo: 0 })
+    .set({ totp_cifrado: `${versaoChave}:${cifrado}`, totp_ultimo_passo: ultimoPasso })
     .where('id', '=', usuarioId)
     .executeTakeFirst();
   if (Number(r.numUpdatedRows) !== 1) throw new ErroLogin('Usuário não encontrado nesta empresa.');

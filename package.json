@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.23.0",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @forja/banco build && pnpm -r test",
+    "typecheck": "pnpm --filter @forja/banco build && pnpm -r typecheck",
     "forja-aprovar": "node packages/mcp-sankhya/dist/cli/aprovar.js",
     "forja-auditoria": "node packages/mcp-sankhya/dist/cli/auditoria.js",
     "db:subir": "docker compose up -d --wait",
     "db:migrar": "node packages/banco/dist/cli/migrar.js",
-    "forja-admin": "node packages/banco/dist/cli/admin.js"
+    "forja-admin": "node packages/mcp-sankhya/dist/cli/admin.js"
   }
 }

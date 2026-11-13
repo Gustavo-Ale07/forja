@@ -12,8 +12,7 @@
     }
   },
   "bin": {
-    "forja-migrar": "dist/cli/migrar.js",
-    "forja-admin": "dist/cli/admin.js"
+    "forja-migrar": "dist/cli/migrar.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

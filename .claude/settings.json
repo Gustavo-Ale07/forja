@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Edit(./planos/**)",
+      "Write(./planos/**)",
+      "Edit(./auditoria/**)",
+      "Write(./auditoria/**)",
+      "Bash(forja-aprovar:*)",
+      "Bash(pnpm forja-aprovar:*)",
+      "Bash(npx forja-aprovar:*)",
+      "Bash(node packages/mcp-sankhya/dist/cli/aprovar.js:*)",
+      "Bash(node ./packages/mcp-sankhya/dist/cli/aprovar.js:*)",
+      "PowerShell(forja-aprovar:*)",
+      "PowerShell(node packages/mcp-sankhya/dist/cli/aprovar.js:*)"
+    ]
+  }
+}

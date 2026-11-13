@@ -1,0 +1,32 @@
+{
+  "name": "@forja/mcp-sankhya",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "forja-aprovar": "dist/cli/aprovar.js",
+    "forja-auditoria": "dist/cli/auditoria.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^18.0.10",
+    "node-sql-parser": "^5.4.0",
+    "pino": "^10.4.0",
+    "playwright": "^1.65.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  }
+}

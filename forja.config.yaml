@@ -1,0 +1,47 @@
+# Forja — configuração (fase 1: SÓ a base de TESTE).
+# Este arquivo é genérico e versionado. Os valores reais da sua base vão em forja.config.local.yaml
+# (fora do git), que o servidor lê por cima deste: objetos são mesclados campo a campo, listas trocadas.
+# Nada de produção aqui. O servidor recusa iniciar se este arquivo definir outro ambiente,
+# se o host não tiver marca de teste, ou se FORJA_TESTE_URL apontar para outro host.
+fuso: America/Sao_Paulo
+
+gateway_hosts_permitidos:
+  - api.sandbox.sankhya.com.br
+
+ambientes:
+  teste:
+    host_permitido: SUA-BASE-TESTE.sankhyacloud.com.br
+    usuario_banco_esperado: SEU_USUARIO_BANCO_TESTE   # SELECT USER FROM DUAL pelo Gateway tem de dar isto
+    gateway_url: https://api.sandbox.sankhya.com.br
+    somente_leitura: false
+
+perfis:
+  desenvolvedor:
+    descricao: Desenvolvedor da Forja na base de teste
+    ambientes: [teste]
+    acoes:
+      teste:
+        ler_dicionario: livre
+        consultar_sql: livre
+        carregar_registros: livre
+        propor_plano: livre
+        criar_tabela_ad: livre          # livre = passo de plano assinado
+        criar_campo_ad: livre
+        definir_opcoes_lista: livre
+        marcar_obrigatorio: livre
+        gravar_registros: com_aprovacao # passo assinado + forja-aprovar <id> --passo <n>
+    tabelas_bloqueadas: []
+
+usuarios:
+  seu_usuario: desenvolvedor
+
+regras:
+  horario:
+    inicio: "07:00"
+    fim: "20:00"
+    dias: [1, 2, 3, 4, 5]
+  limite_registros_por_execucao: 50
+  leitura_bloqueada: ["TSI*"]
+  gravacao_nativa_liberada: []
+
+instancias: {}

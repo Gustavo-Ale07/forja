@@ -1,0 +1,84 @@
+{
+  "id": "exemplo",
+  "descricao": "Exemplo do formato de plano, uma ação por passo: criar_tabela_ad (só tabela + chave primária com auto numeração), um criar_campo_ad por campo, definir_opcoes_lista para as opções de um campo lista e marcar_obrigatorio para o \"Requerido\". Não é para executar. Para usar: chame propor_plano com estes passos (o servidor grava em planos/<id>.json) e assine com forja-aprovar.",
+  "criado_por": "seu_usuario",
+  "criado_em": "2026-11-13T17:36:14.822Z",
+  "passos": [
+    {
+      "n": 1,
+      "ferramenta": "criar_tabela_ad",
+      "descricao": "Tabela e chave primária",
+      "parametros": {
+        "nome": "AD_EXEMPLO",
+        "descricao": "Exemplo Forja"
+      },
+      "hash_parametros": "17330ef3351165e44707ad371a03e7c9d4b9abf6419f5a782fe8021566003699"
+    },
+    {
+      "n": 2,
+      "ferramenta": "criar_campo_ad",
+      "descricao": "Campo texto",
+      "parametros": {
+        "tabela": "AD_EXEMPLO",
+        "campo": "DESCRICAO",
+        "descricao": "Descrição",
+        "tipo": "texto"
+      },
+      "hash_parametros": "5b8b5b729831e1850073d010126fb3582f8d7f39590f895939f1ff4af530132b"
+    },
+    {
+      "n": 3,
+      "ferramenta": "criar_campo_ad",
+      "descricao": "Campo inteiro",
+      "parametros": {
+        "tabela": "AD_EXEMPLO",
+        "campo": "QTD",
+        "descricao": "Quantidade",
+        "tipo": "inteiro"
+      },
+      "hash_parametros": "e942217c00df5a5aba46b5394a90aa04fb3fb9e8029fb01f6f58966289747199"
+    },
+    {
+      "n": 4,
+      "ferramenta": "criar_campo_ad",
+      "descricao": "Campo lista (só a coluna)",
+      "parametros": {
+        "tabela": "AD_EXEMPLO",
+        "campo": "SITUACAO",
+        "descricao": "Situação",
+        "tipo": "lista"
+      },
+      "hash_parametros": "77b9b9271040d644210a52df3025566f2bcbca946aab5b9747998413e199552b"
+    },
+    {
+      "n": 5,
+      "ferramenta": "definir_opcoes_lista",
+      "descricao": "Opções da lista",
+      "parametros": {
+        "tabela": "AD_EXEMPLO",
+        "campo": "SITUACAO",
+        "opcoes": [
+          {
+            "valor": "A",
+            "descricao": "Aberto"
+          },
+          {
+            "valor": "F",
+            "descricao": "Fechado"
+          }
+        ]
+      },
+      "hash_parametros": "767038f0311ad3f4a23f30f436485296647325044cd6a550b6e043c892c28b68"
+    },
+    {
+      "n": 6,
+      "ferramenta": "marcar_obrigatorio",
+      "descricao": "Descrição requerida",
+      "parametros": {
+        "tabela": "AD_EXEMPLO",
+        "campo": "DESCRICAO"
+      },
+      "hash_parametros": "10f94624d3446498adeea00521471dfad85d17903c1b0a5950fab5e2b0dd6464"
+    }
+  ]
+}

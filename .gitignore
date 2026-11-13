@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.env
+forja.config.local.yaml
+.env.*
+!.env.example
+auditoria/*
+!auditoria/.gitkeep
+planos/*
+!planos/.gitkeep
+*.db
+*.db-*

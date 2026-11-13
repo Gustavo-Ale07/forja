@@ -86,6 +86,8 @@ export class Executor {
   private readonly navegador = new Mutex();
   /** Passos de plano em execução agora: fecha a janela entre "não executado" (regra 2) e o registro na auditoria. */
   private readonly passosEmCurso = new Set<string>();
+  /** Passos que rodaram no Sankhya mas cuja auditoria falhou: nunca são liberados neste processo. */
+  private readonly passosIncertos = new Set<string>();
   private readonly agora: () => Date;
 
   constructor(private readonly d: DependenciasExecutor) {
@@ -121,7 +123,7 @@ export class Executor {
     // não podem ambas passar pelo "passo já executado" (regra 2), que agora é lido do banco.
     const pedido = passoPedido(bruto);
     const chavePasso = pedido ? `${pedido.planoId}#${pedido.passoId}` : undefined;
-    if (chavePasso && this.passosEmCurso.has(chavePasso)) {
+    if (chavePasso && (this.passosEmCurso.has(chavePasso) || this.passosIncertos.has(chavePasso))) {
       const motivo = `[regra 2 – ${NOMES_REGRAS[2]}] O passo ${pedido!.passoId} do plano "${pedido!.planoId}" já está em execução.`;
       await this.d.auditoria.registrar({ usuario: this.d.usuario, ambiente: this.d.ambiente, ferramenta: nome, parametros: bruto ?? {}, ...pedido, resultado: 'recusado', motivo });
       return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
@@ -201,14 +203,23 @@ export class Executor {
       }
       const rodar = () => def.executar(dec.params as never, ctx);
       const r = def.usaNavegador ? await this.navegador.rodar(rodar) : await rodar();
-      await this.d.auditoria.registrar({
-        ...aud,
-        resultado: 'aceito',
-        motivo: r.motivo ?? 'executado',
-        antes: r.antes,
-        depois: r.depois,
-        capturaPath: r.capturaPath,
-      });
+      try {
+        await this.d.auditoria.registrar({
+          ...aud,
+          resultado: 'aceito',
+          motivo: r.motivo ?? 'executado',
+          antes: r.antes,
+          depois: r.depois,
+          capturaPath: r.capturaPath,
+        });
+      } catch (e) {
+        // A ação já aconteceu no Sankhya, mas a auditoria não registrou: falha fechada. O passo nunca
+        // mais é liberado neste processo e o servidor trava até alguém conferir e reiniciar.
+        if (dec.planoId && dec.passoId !== undefined) this.passosIncertos.add(`${dec.planoId}#${dec.passoId}`);
+        this.travado = `TRAVA DE AUDITORIA: "${nome}" rodou no Sankhya, mas a auditoria não gravou (${mensagemSegura(e)}). Confira o resultado no Sankhya antes de reiniciar o servidor.`;
+        this.d.log?.error({ ferramenta: nome }, 'auditoria falhou depois da execução');
+        return texto(`ERRO: ${this.travado}`, true);
+      }
       return texto(JSON.stringify(mascarar(r.dados), null, 2));
     } catch (e) {
       const motivo = mensagemSegura(e);

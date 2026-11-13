@@ -309,6 +309,28 @@ describe('passo de plano: duas chamadas simultâneas', () => {
     expect(textoDe(await chamada())).toMatch(/regra 2/);
     expect(t.construtor.acoes).toHaveLength(1);
   });
+
+  it('auditoria falha depois de executar: servidor trava e o passo não roda de novo', async () => {
+    const t = montarExecutor();
+    t.gw.base.criarTabela('AD_FORJATESTE', 'Teste Forja');
+    t.gw.base.criarCampo('AD_FORJATESTE', 'OBS', 'Observação', 'texto');
+    const parametros = { tabela: 'AD_FORJATESTE', campo: 'OBS' };
+    planoAssinado(t.planos, 'inc', [{ ferramenta: 'marcar_obrigatorio', parametros }]);
+    const original = t.auditoria.registrar.bind(t.auditoria);
+    let falhar = true;
+    t.auditoria.registrar = async (ev) => {
+      if (falhar && ev.resultado === 'aceito') throw new Error('banco fora do ar');
+      return original(ev);
+    };
+    const chamada = () => t.executor.chamar('marcar_obrigatorio', { ...parametros, plano_id: 'inc', passo_id: 1 });
+    const r = await chamada();
+    expect(r.isError).toBe(true);
+    expect(textoDe(r)).toMatch(/TRAVA DE AUDITORIA/);
+    falhar = false;
+    expect(textoDe(await chamada())).toMatch(/regra 2.*já está em execução/s);
+    expect(textoDe(await t.executor.chamar('ler_dicionario', { tabela: 'AD_FORJATESTE' }))).toMatch(/TRAVA DE AUDITORIA/);
+    expect(t.construtor.acoes).toEqual(['marcarRequerido AD_FORJATESTE.OBS']);
+  });
 });
 
 describe('critério de pronto (no mock): duas ações proibidas', () => {

@@ -179,3 +179,4 @@ Detalhes da auditoria:
   - Um comando indireto, como `node -e "…fs.readFileSync('.env')…"`, um script ou outro interpretador, não casa com essas regras.
   - A garantia real, por enquanto, é você revisar os comandos que o Claude Code pede para rodar.
 - **A separação completa só vem quando o servidor rodar fora desta máquina.** Hoje a `FORJA_CHAVE_MESTRA` e o `.env` ficam na mesma máquina em que o agente roda.
+- **Se a ação rodar no Sankhya e a gravação da auditoria falhar** (ex.: Postgres fora do ar), o servidor trava com "TRAVA DE AUDITORIA" e não roda mais nada, nem repete o passo. Essa trava vale só até reiniciar: antes de reiniciar, confira no Sankhya se o passo foi feito, porque a auditoria não tem o registro dele.

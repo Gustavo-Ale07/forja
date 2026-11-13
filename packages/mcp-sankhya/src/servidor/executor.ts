@@ -1,4 +1,5 @@
-import type { Auditoria } from '../auditoria/registro.js';
+import type { ResultadoReserva } from '@forja/banco';
+import type { Auditoria, EventoNovo } from '../auditoria/registro.js';
 import { ForjaErro } from '../comum/erros.js';
 import { mascarar, mensagemSegura } from '../comum/mascara.js';
 import type { ConfigArquivo } from '../config/esquema.js';
@@ -189,7 +190,32 @@ export class Executor {
       confirmacoes: this.d.confirmacoes,
       agora: this.agora,
     };
-    const aud = { ...base, perfil: dec.perfil, ...ids };
+    let aud: Omit<EventoNovo, 'resultado' | 'motivo'> = { ...base, perfil: dec.perfil, ...ids };
+
+    // Reserva no banco ANTES de executar: se o processo cair ou a auditoria falhar depois da
+    // execução, a reserva fica sem desfecho e o passo é recusado até a conferência manual.
+    if (dec.planoId && dec.passoId !== undefined) {
+      let reserva: ResultadoReserva;
+      try {
+        reserva = await this.d.auditoria.reservar(aud);
+      } catch (e) {
+        const motivo = `Não foi possível reservar o passo na auditoria (${mensagemSegura(e)}).`;
+        this.d.log?.error({ ferramenta: nome }, 'reserva do passo falhou');
+        return texto(`ERRO: ${motivo} Nada foi enviado ao Sankhya.`, true);
+      }
+      if (!reserva.reservado) {
+        const motivo =
+          reserva.situacao === 'executado'
+            ? `[regra 2 – ${NOMES_REGRAS[2]}] O passo ${dec.passoId} do plano "${dec.planoId}" já foi executado.`
+            : `[regra 2 – ${NOMES_REGRAS[2]}] O passo ${dec.passoId} do plano "${dec.planoId}" ficou "em execução" sem desfecho ` +
+              `(reserva #${reserva.reserva.id}: o servidor caiu ou a auditoria falhou no meio). Não vou repetir. ` +
+              `Confira no Sankhya se foi feito e registre no seu terminal: ` +
+              `pnpm forja-aprovar ${dec.planoId} --passo ${dec.passoId} --conferir feito|nao-feito`;
+        await this.d.auditoria.registrar({ ...aud, resultado: 'recusado', motivo });
+        return texto(`RECUSADO pelo porteiro ${motivo}\nNada foi enviado ao Sankhya.`, true);
+      }
+      aud = { ...aud, reservaId: reserva.reservaId };
+    }
     try {
       if (def.usaSankhya) {
         try {

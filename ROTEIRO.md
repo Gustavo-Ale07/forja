@@ -30,6 +30,13 @@ Regras: uma ação por passo de plano; nada específico de empresa em arquivo ve
 - [ ] Sementes genéricas: etiqueta de transporte pela nota faturada; agenda de tarefas em AD_; NCM/impostos em compra de uso e consumo; separação/conferência de pedidos em AD_; controle de acesso por perfis em AD_
 - [ ] Leitura funcionando no sandbox; escrita nova marcada "em calibração"
 
+## 3a. Reserva do passo antes de executar (feito)
+- [x] Migração 004: resultado `em_execucao` e `reserva_id` (um desfecho por reserva, índice único)
+- [x] Servidor reserva o passo no Postgres antes de mandar ao Sankhya; desfecho ligado à reserva
+- [x] Reserva sem desfecho (queda ou trava de auditoria) recusa o passo mesmo depois de reiniciar; não repete
+- [x] `forja-aprovar <id> --passo N --conferir feito|nao-feito` com TOTP fecha a reserva
+- [!] Aplicar a migração 004 no banco `forja` (`pnpm db:migrar`) — junto com a reconexão do MCP (você)
+
 ## 4. Forja web mínima (Fase 3 enxuta)
 - [ ] Next.js, direção visual "temperatura" (grafite, aço claro, verde-limão só para "agindo agora", Instrument Sans)
 - [ ] Login com senha + TOTP

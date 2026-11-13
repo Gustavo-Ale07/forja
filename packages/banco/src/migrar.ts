@@ -3,12 +3,14 @@ import { Migrator, type Migration, type MigrationProvider, type MigrationResultS
 import { SQL_001 } from './migracoes/001-inicial.js';
 import { SQL_002 } from './migracoes/002-login.js';
 import { SQL_003 } from './migracoes/003-admin.js';
+import { SQL_004 } from './migracoes/004-reserva-passo.js';
 
 /** Migrações em ordem. Cada uma é SQL puro, revisável, rodada pelo papel forja_dono. */
 const MIGRACOES: Record<string, string> = {
   '001-inicial': SQL_001,
   '002-login': SQL_002,
   '003-admin': SQL_003,
+  '004-reserva-passo': SQL_004,
 };
 
 const provedor: MigrationProvider = {

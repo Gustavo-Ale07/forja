@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MOTIVOS_EXECUTADO, type ResultadoReserva } from '@forja/banco';
 import os from 'node:os';
 import path from 'node:path';
 import { linhaAuditoria, type Auditoria, type EventoNovo } from '../src/auditoria/registro.js';
@@ -105,7 +106,7 @@ export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; ag
   const encerrados: string[] = [];
   const ferramentas = registroFerramentas();
   const config = o.config ?? configBase();
-  const executor = new Executor({
+  const deps: ConstructorParameters<typeof Executor>[0] = {
     ferramentas,
     config,
     ambiente: 'teste',
@@ -122,15 +123,20 @@ export function montarExecutor(o: { config?: ConfigArquivo; usuario?: string; ag
     agora: () => o.agora ?? QUARTA_10H,
     encerrar: (m) => encerrados.push(m),
     ...(o.identidade ? { identidade: o.identidade } : {}),
-  });
+  };
+  const executor = new Executor(deps);
+  /** Outro processo do servidor com o mesmo banco (estado em memória zerado). */
+  const reiniciar = () => new Executor(deps);
   const eventos = () => auditoria.linhas;
-  return { raiz, planos, gw, construtor, auditoria, executor, encerrados, eventos, ferramentas };
+  return { raiz, planos, gw, construtor, auditoria, executor, reiniciar, encerrados, eventos, ferramentas };
 }
 
 export const textoDe = (r: { content: Array<{ text: string }> }) => r.content.map((c) => c.text).join('\n');
 
 /** Linha como fica na tabela (JSONs em texto, já mascarados). */
 export interface LinhaMemoria {
+  id: string;
+  reserva_id: string | null;
   usuario_id: string | null;
   usuario: string | null;
   perfil: string | null;
@@ -139,7 +145,7 @@ export interface LinhaMemoria {
   parametros: string;
   plano_id: string | null;
   passo_id: number | null;
-  resultado: EventoNovo['resultado'];
+  resultado: EventoNovo['resultado'] | 'em_execucao';
   motivo: string;
   antes_json: string | null;
   depois_json: string | null;
@@ -152,6 +158,8 @@ export class AuditoriaMemoria implements Auditoria {
   async registrar(ev: EventoNovo): Promise<void> {
     const l = linhaAuditoria(ev);
     this.linhas.push({
+      id: String(this.linhas.length + 1),
+      reserva_id: l.reservaId ?? null,
       usuario_id: l.usuarioId ?? null,
       usuario: l.usuario ?? null,
       perfil: l.perfil ?? null,
@@ -168,6 +176,17 @@ export class AuditoriaMemoria implements Auditoria {
     });
   }
   async passoExecutado(planoId: string, passoId: number): Promise<boolean> {
-    return this.linhas.some((l) => l.plano_id === planoId && l.passo_id === passoId && l.resultado === 'aceito' && ['executado', 'já existia'].includes(l.motivo));
+    return this.linhas.some((l) => l.plano_id === planoId && l.passo_id === passoId && l.resultado === 'aceito' && MOTIVOS_EXECUTADO.includes(l.motivo));
+  }
+  async reservar(ev: Omit<EventoNovo, 'resultado' | 'motivo'>): Promise<ResultadoReserva> {
+    const { planoId, passoId } = ev;
+    if (!planoId || passoId === undefined) throw new Error('reservar exige plano e passo.');
+    const aberta = this.linhas.find(
+      (r) => r.resultado === 'em_execucao' && r.plano_id === planoId && r.passo_id === passoId && !this.linhas.some((d) => d.reserva_id === r.id),
+    );
+    if (aberta) return { reservado: false, situacao: 'em_execucao', reserva: { ...aberta, data_hora: new Date(), parametros: JSON.parse(aberta.parametros), antes: null, depois: null, resultado: 'em_execucao' } };
+    if (await this.passoExecutado(planoId, passoId)) return { reservado: false, situacao: 'executado' };
+    await this.registrar({ ...ev, resultado: 'em_execucao' as never, motivo: 'reserva: em execução' });
+    return { reservado: true, reservaId: this.linhas.at(-1)!.id };
   }
 }

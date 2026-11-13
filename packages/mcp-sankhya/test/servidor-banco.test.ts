@@ -14,6 +14,8 @@ import {
   definirTotp,
   importarConfig,
   novoSegredoTotp,
+  registrarChamada,
+  reservarPasso,
   listarChamadas,
   resolverSessao,
   revogarSessao,
@@ -22,7 +24,7 @@ import {
   type SessaoLocal,
 } from '@forja/banco';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { aprovar, type PedidoAprovacao } from '../src/cli/aprovacao.js';
+import { aprovar, conferir, type PedidoAprovacao, type PedidoConferencia } from '../src/cli/aprovacao.js';
 import { carregarConfigBanco, type ConfigServidor } from '../src/config/banco.js';
 import { gravarPlano, lerPlano, verificarAssinaturaPlano } from '../src/porteiro/planos.js';
 import { montarExecutor, pastaTemporaria, textoDe } from './ajuda.js';
@@ -259,5 +261,73 @@ describe('forja-aprovar: aprovador da sessão e TOTP a cada assinatura', () => {
       'aceito:passo 1 aprovado',
     ]);
     expect((await auditoria())[0]!.usuario_id).toBe(s.usuarioId);
+  });
+});
+
+describe('forja-aprovar --conferir: fecha a reserva "em execução" sem desfecho', () => {
+  async function preparar() {
+    const x = await empresaComSessao();
+    const s = await resolverSessao(app, x.sessao.token);
+    if (s.status !== 'valida') throw new Error('sessão de teste inválida');
+    const reservar = () =>
+      reservarPasso(app, x.e.id, {
+        ambiente: 'teste',
+        ferramenta: 'marcar_obrigatorio',
+        parametrosJson: '{"tabela":"AD_X","campo":"OBS"}',
+        planoId: 'pc',
+        passoId: 1,
+      });
+    const saida: string[] = [];
+    const pedido = (codigo: string, extra: Partial<PedidoConferencia> = {}): PedidoConferencia => ({
+      app,
+      cofre,
+      sessao: s,
+      diretorioPlanos: pastaTemporaria(),
+      id: 'pc',
+      passo: 1,
+      desfecho: 'feito',
+      confirmarId: async () => 'pc',
+      pedirCodigo: async () => codigo,
+      escrever: (t) => saida.push(t),
+      ...extra,
+    });
+    const auditoria = () => listarChamadas(app, x.e.id, new Date(0), new Date('2100-01-01'));
+    return { x, reservar, pedido, saida, auditoria };
+  }
+  const daqui = (s: number) => new Date(Date.now() + s * 1000);
+
+  it('sem reserva pendente: nada a conferir e o código nem é pedido', async () => {
+    const { pedido } = await preparar();
+    let pediu = false;
+    const r = await conferir(pedido('x', { pedirCodigo: async () => ((pediu = true), 'x') }));
+    expect(r).toMatchObject({ conferido: false, motivo: expect.stringMatching(/Nada a conferir/) });
+    expect(pediu).toBe(false);
+  });
+
+  it('código errado: a reserva continua pendente e a recusa vai para a auditoria', async () => {
+    const { reservar, pedido, auditoria } = await preparar();
+    expect(await reservar()).toMatchObject({ reservado: true });
+    expect(await conferir(pedido('000000'))).toMatchObject({ conferido: false });
+    expect(await reservar()).toMatchObject({ reservado: false, situacao: 'em_execucao' });
+    expect((await auditoria()).map((e) => e.resultado)).toEqual(['em_execucao', 'recusado']);
+  });
+
+  it('feito: o passo passa a constar como executado e não roda de novo', async () => {
+    const { x, reservar, pedido, auditoria } = await preparar();
+    const r1 = await reservar();
+    const t = daqui(60);
+    const r = await conferir(pedido(codigoTotpAtual(x.segredo, x.login, t), { agora: () => t }));
+    expect(r).toEqual({ conferido: true, reservaId: (r1 as { reservaId: string }).reservaId });
+    expect(await reservar()).toEqual({ reservado: false, situacao: 'executado' });
+    const ultimo = (await auditoria()).at(-1)!;
+    expect(ultimo).toMatchObject({ resultado: 'aceito', motivo: 'executado (conferência manual)', ferramenta: 'marcar_obrigatorio', usuario: x.login });
+  });
+
+  it('nao-feito: grava erro e libera o passo para uma nova reserva', async () => {
+    const { x, reservar, pedido } = await preparar();
+    await reservar();
+    const t = daqui(60);
+    expect(await conferir(pedido(codigoTotpAtual(x.segredo, x.login, t), { desfecho: 'nao-feito', agora: () => t }))).toMatchObject({ conferido: true });
+    expect(await reservar()).toMatchObject({ reservado: true });
   });
 });

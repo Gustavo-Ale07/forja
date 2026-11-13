@@ -84,7 +84,13 @@ describe('critério de pronto (no mock): AD_FORJATESTE com 3 campos', () => {
     expect(criacao.captura_path).toBeTruthy();
     expect(JSON.parse(criacao.antes_json!).existe).toBe(false);
     expect(JSON.parse(criacao.depois_json!).existe).toBe(true);
-    expect(ev.map((e) => `${e.ferramenta}:${e.resultado}`)).toEqual([
+    // cada passo executado tem a sua reserva "em_execucao" antes, e o desfecho aponta para ela
+    for (const d of ev.filter((e) => e.plano_id === 'forjateste' && e.resultado === 'aceito' && e.ferramenta !== 'propor_plano')) {
+      const r = ev.find((x) => x.id === d.reserva_id);
+      expect(r).toMatchObject({ resultado: 'em_execucao', plano_id: 'forjateste', passo_id: d.passo_id });
+      expect(Number(r!.id)).toBeLessThan(Number(d.id));
+    }
+    expect(ev.filter((e) => e.resultado !== 'em_execucao').map((e) => `${e.ferramenta}:${e.resultado}`)).toEqual([
       'propor_plano:aceito',
       'criar_tabela_ad:recusado',
       'criar_tabela_ad:aceito',
@@ -330,6 +336,11 @@ describe('passo de plano: duas chamadas simultâneas', () => {
     expect(textoDe(await chamada())).toMatch(/regra 2.*já está em execução/s);
     expect(textoDe(await t.executor.chamar('ler_dicionario', { tabela: 'AD_FORJATESTE' }))).toMatch(/TRAVA DE AUDITORIA/);
     expect(t.construtor.acoes).toEqual(['marcarRequerido AD_FORJATESTE.OBS']);
+
+    // reinício: a trava em memória some, mas a reserva sem desfecho no banco segura o passo
+    const r2 = await t.reiniciar().chamar('marcar_obrigatorio', { ...parametros, plano_id: 'inc', passo_id: 1 });
+    expect(textoDe(r2)).toMatch(/regra 2.*sem desfecho.*--conferir feito|nao-feito/s);
+    expect(t.construtor.acoes).toHaveLength(1);
   });
 });
 
@@ -437,7 +448,7 @@ describe('gravar_registros: prévia + token + aprovação de passo', () => {
     expect(textoDe(de_novo)).toMatch(/já foi executado/);
     expect(t.gw.gravacoes).toHaveLength(1);
 
-    const ev = t.eventos().map((e) => `${e.resultado}:${e.motivo.slice(0, 12)}`);
+    const ev = t.eventos().filter((e) => e.resultado !== 'em_execucao').map((e) => `${e.resultado}:${e.motivo.slice(0, 12)}`);
     expect(ev[0]).toBe('aceito:previa');
     expect(ev).toContain('aceito:executado');
     // o token não fica legível na auditoria

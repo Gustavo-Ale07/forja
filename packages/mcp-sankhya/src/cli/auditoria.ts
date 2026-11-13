@@ -13,7 +13,7 @@ export function formatarEvento(e: ChamadaGravada, fuso: string): string {
   const plano = e.plano_id ? ` plano=${e.plano_id}${e.passo_id ? `#${e.passo_id}` : ''}` : '';
   const parametros = JSON.stringify(e.parametros);
   const linhas = [
-    `#${e.id} ${hora} ${e.resultado.toUpperCase().padEnd(8)} ${e.ferramenta} usuario=${e.usuario ?? '-'} perfil=${e.perfil ?? '-'} amb=${e.ambiente}${plano}`,
+    `#${e.id} ${hora} ${e.resultado.toUpperCase().padEnd(8)} ${e.ferramenta} usuario=${e.usuario ?? '-'} perfil=${e.perfil ?? '-'} amb=${e.ambiente}${plano}${e.reserva_id ? ` desfecho-de=#${e.reserva_id}` : ''}`,
     `    motivo: ${e.motivo}`,
     `    parametros: ${parametros.length > 300 ? `${parametros.slice(0, 300)}…` : parametros}`,
   ];

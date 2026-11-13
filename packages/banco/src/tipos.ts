@@ -6,7 +6,7 @@ type InstanteOpcional = ColumnType<Date | null, Date | string | null | undefined
 
 export type Nivel = 'livre' | 'com_aprovacao' | 'bloqueado';
 export type TipoCredencial = 'web_usuario' | 'web_senha' | 'gateway_client_id' | 'gateway_client_secret' | 'gateway_token';
-export type Resultado = 'aceito' | 'recusado' | 'erro';
+export type Resultado = 'aceito' | 'recusado' | 'erro' | 'em_execucao';
 
 export interface TabelaEmpresa {
   id: Generated<string>;
@@ -125,6 +125,7 @@ export interface TabelaChamadaFerramenta {
   antes: ColumnType<unknown, string | null, never>;
   depois: ColumnType<unknown, string | null, never>;
   captura_path: string | null;
+  reserva_id: ColumnType<string | null, string | null | undefined, never>;
 }
 
 export interface Banco {

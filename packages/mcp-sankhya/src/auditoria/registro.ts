@@ -1,4 +1,4 @@
-import { passoExecutado, registrarChamada, type ChamadaNova, type Db } from '@forja/banco';
+import { passoExecutado, registrarChamada, reservarPasso, type ChamadaNova, type Db, type ResultadoReserva } from '@forja/banco';
 import { mascarar, mascararTexto } from '../comum/mascara.js';
 
 export type Resultado = 'aceito' | 'recusado' | 'erro';
@@ -19,6 +19,8 @@ export interface EventoNovo {
   antes?: unknown;
   depois?: unknown;
   capturaPath?: string | undefined;
+  /** Desfecho da reserva criada por `reservar`. */
+  reservaId?: string | undefined;
 }
 
 /**
@@ -29,6 +31,11 @@ export interface Auditoria {
   registrar(ev: EventoNovo): Promise<void>;
   /** Um passo conta como executado quando houve execução efetiva aceita. */
   passoExecutado(planoId: string, passoId: number): Promise<boolean>;
+  /**
+   * Reserva o passo ANTES de executar (linha "em_execucao"). Recusa se já foi executado ou se há
+   * reserva sem desfecho. O desfecho vai em `registrar({ ..., reservaId })`.
+   */
+  reservar(ev: Omit<EventoNovo, 'resultado' | 'motivo'>): Promise<ResultadoReserva>;
 }
 
 const LIMITE_JSON = 200_000;
@@ -55,6 +62,7 @@ export function linhaAuditoria(ev: EventoNovo): ChamadaNova {
     antesJson: json(ev.antes),
     depoisJson: json(ev.depois),
     capturaPath: ev.capturaPath,
+    reservaId: ev.reservaId,
   };
 }
 
@@ -72,6 +80,10 @@ export class AuditoriaPostgres implements Auditoria {
 
   passoExecutado(planoId: string, passoId: number): Promise<boolean> {
     return passoExecutado(this.app, this.empresaId, planoId, passoId);
+  }
+
+  reservar(ev: Omit<EventoNovo, 'resultado' | 'motivo'>): Promise<ResultadoReserva> {
+    return reservarPasso(this.app, this.empresaId, linhaAuditoria({ ...ev, resultado: 'aceito', motivo: '' }), this.agora());
   }
 }
 

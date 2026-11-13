@@ -133,9 +133,11 @@ Fluxo:
 ```powershell
 pnpm forja-aprovar <id>              # assina o plano (livre = pode executar)
 pnpm forja-aprovar <id> --passo 2    # aprova um passo com_aprovacao
+pnpm forja-aprovar <id> --passo 2 --conferir feito      # fecha uma reserva "em execução": a ação foi feita
+pnpm forja-aprovar <id> --passo 2 --conferir nao-feito  # ... a ação não foi feita (libera o passo)
 ```
 
-O comando exige a sessão da Forja (`pnpm forja-admin login`): **o aprovador é o usuário dessa sessão**, gravado em `aprovado_por`. Ele mostra o plano, pede que você digite o id de novo e pede **um código TOTP novo do aplicativo autenticador a cada assinatura e a cada `--passo`**. O código é conferido e consumido no banco: o mesmo código não serve duas vezes. Código errado = nada é gravado, e a recusa fica na auditoria. Ele só roda num terminal interativo e o Claude Code está proibido de chamá-lo. Cada passo executa **uma vez**: a auditoria é a fonte de verdade, e duas chamadas simultâneas do mesmo passo são barradas (a segunda é recusada na regra 2 com "já está em execução").
+O comando exige a sessão da Forja (`pnpm forja-admin login`): **o aprovador é o usuário dessa sessão**, gravado em `aprovado_por`. Ele mostra o plano, pede que você digite o id de novo e pede **um código TOTP novo do aplicativo autenticador a cada assinatura e a cada `--passo`**. O código é conferido e consumido no banco: o mesmo código não serve duas vezes. Código errado = nada é gravado, e a recusa fica na auditoria. Ele só roda num terminal interativo e o Claude Code está proibido de chamá-lo. Cada passo executa **uma vez**: a auditoria é a fonte de verdade. Antes de mandar qualquer coisa ao Sankhya, o servidor **reserva o passo no Postgres** (linha `em_execucao` na auditoria, sob trava do banco); o desfecho (executado, erro) fica ligado a essa reserva. Duas chamadas simultâneas do mesmo passo: só uma reserva vence. Se o servidor cair, ou a auditoria falhar depois de agir, a reserva fica **sem desfecho** e o passo é recusado na regra 2 ("ficou em execução sem desfecho"), mesmo depois de reiniciar: ninguém repete. Confira no Sankhya se a ação foi feita e registre com `--conferir feito` ou `--conferir nao-feito` (também com TOTP; `nao-feito` libera o passo para ser chamado de novo).
 
 Qualquer mudança no plano depois da assinatura invalida o HMAC, e o porteiro recusa. Plano assinado por quem não é mais usuário ativo da empresa também é recusado (regra 2); aprove de novo.
 
@@ -179,4 +181,4 @@ Detalhes da auditoria:
   - Um comando indireto, como `node -e "…fs.readFileSync('.env')…"`, um script ou outro interpretador, não casa com essas regras.
   - A garantia real, por enquanto, é você revisar os comandos que o Claude Code pede para rodar.
 - **A separação completa só vem quando o servidor rodar fora desta máquina.** Hoje a `FORJA_CHAVE_MESTRA` e o `.env` ficam na mesma máquina em que o agente roda.
-- **Se a ação rodar no Sankhya e a gravação da auditoria falhar** (ex.: Postgres fora do ar), o servidor trava com "TRAVA DE AUDITORIA" e não roda mais nada, nem repete o passo. Essa trava vale só até reiniciar: antes de reiniciar, confira no Sankhya se o passo foi feito, porque a auditoria não tem o registro dele.
+- **Se a ação rodar no Sankhya e a gravação da auditoria falhar** (ex.: Postgres fora do ar), o servidor trava com "TRAVA DE AUDITORIA" e não roda mais nada, nem repete o passo. Depois de reiniciar, o passo continua recusado porque a reserva "em execução" dele está no banco sem desfecho; quem destrava é a conferência manual (`forja-aprovar ... --conferir`). Se o Postgres estiver fora do ar já na reserva, nada é enviado ao Sankhya.

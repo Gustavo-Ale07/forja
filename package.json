@@ -12,6 +12,7 @@
     "forja-aprovar": "node packages/mcp-sankhya/dist/cli/aprovar.js",
     "forja-auditoria": "node packages/mcp-sankhya/dist/cli/auditoria.js",
     "db:subir": "docker compose up -d --wait",
-    "db:migrar": "node packages/banco/dist/cli/migrar.js"
+    "db:migrar": "node packages/banco/dist/cli/migrar.js",
+    "forja-admin": "node packages/banco/dist/cli/admin.js"
   }
 }

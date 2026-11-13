@@ -47,6 +47,8 @@ export interface TabelaUsuario {
   ativo: Generated<boolean>;
   tentativas_falhas: Generated<number>;
   bloqueado_ate: InstanteOpcional;
+  /** Último período TOTP aceito (bigint; o pg devolve como texto). Impede reusar um código. */
+  totp_ultimo_passo: ColumnType<string, number | string | undefined, number | string>;
   criado_em: Instante;
 }
 

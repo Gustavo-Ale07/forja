@@ -3,6 +3,7 @@ dist/
 coverage/
 .env
 forja.config.local.yaml
+.forja/
 .env.*
 !.env.example
 auditoria/*

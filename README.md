@@ -1,4 +1,4 @@
-# Forja: Fase 1, servidor MCP do Sankhya (`packages/mcp-sankhya`)
+# Forja: servidor MCP do Sankhya (`packages/mcp-sankhya`)
 
 Este servidor MCP dá ao Claude Code acesso **controlado** à base de **teste** do Sankhya.
 
@@ -6,29 +6,49 @@ Este servidor MCP dá ao Claude Code acesso **controlado** à base de **teste** 
 - Criação de tabelas e campos `AD_`, pelas telas oficiais (Playwright), com conferência por SELECT no dicionário.
 - Gravação de registros com prévia, confirmação e aprovação.
 
-Toda chamada passa por um **porteiro de 7 regras** e fica registrada numa **auditoria que só aceita INSERT** (Postgres desde a Fase 2).
+Toda chamada passa por um **porteiro de 7 regras** e fica registrada numa **auditoria no Postgres que só aceita INSERT**. Usuários, perfis, regras da empresa e credenciais (cifradas) também ficam no Postgres; cada pessoa entra com senha + código TOTP.
 
-> Nesta fase **só existe o ambiente `teste`**. O servidor se recusa a iniciar se o config ou o `.env`
+> Nesta fase **só existe o ambiente `teste`**. O servidor se recusa a iniciar se a configuração
 > apontar para algo que pareça produção. Ele também trava e encerra se `SELECT USER FROM DUAL` não
-> devolver o usuário de banco esperado (`usuario_banco_esperado`).
+> devolver o usuário de banco esperado.
 
 ## 1. Instalação
 
-Requisitos: Node 24 e pnpm 11.
+Requisitos: Node 24, pnpm 11 e Docker.
 
 ```powershell
 cd C:\Dev\forja
 pnpm install
 pnpm --filter @forja/mcp-sankhya exec playwright install chromium
 pnpm build
-pnpm test        # porteiro, trava de produção, auditoria e executor (com Gateway falso)
+pnpm db:subir    # Postgres local em 127.0.0.1:55433 (bancos forja e forja_teste)
+pnpm db:migrar   # aplica as migrações no banco forja
+pnpm test        # porteiro, trava de produção, banco (RLS, login, auditoria) e executor (Gateway falso)
 ```
 
-## 2. Preencher o `.env`
+## 2. Configurar
 
-### Configuração da sua base: `forja.config.local.yaml`
+### `.env`
 
-O `forja.config.yaml` versionado é genérico. Crie `forja.config.local.yaml` na raiz (está no `.gitignore`) com os valores reais da sua base de teste. O servidor lê esse arquivo por cima do genérico (objetos mesclados campo a campo; listas substituídas), e a trava de produção vale para o resultado:
+Copie `.env.example` para `.env`, na raiz do repositório. O `.env` está no `.gitignore` e o Claude Code está proibido de lê-lo (`.claude/settings.json`).
+
+| Variável | Quem usa | O que é |
+|---|---|---|
+| `FORJA_DATABASE_URL` | servidor, `forja-aprovar`, `forja-auditoria`, login | Postgres com o papel `forja_app` (sujeito ao RLS). |
+| `FORJA_DATABASE_URL_ADMIN` | `db:migrar`, `forja-admin` | Postgres com o papel `forja_dono` (migrações e cadastros). |
+| `FORJA_CHAVE_MESTRA` | servidor, `forja-admin`, `forja-aprovar` | 32 bytes em hex (64 caracteres) que cifram e decifram as credenciais e o TOTP no banco. |
+| `FORJA_CHAVE_APROVACAO` | servidor, `forja-aprovar` | Chave do HMAC dos planos, com no mínimo 32 caracteres. |
+| `FORJA_TESTE_URL` e `FORJA_TESTE_*` | só `importar-config` | URL da base de teste (mesmo host de `host_permitido`) e, se quiser, as 5 credenciais. Depois de importar, podem sair do `.env`. |
+| `FORJA_NAVEGADOR_VISIVEL=1` | servidor | Opcional. Mostra o navegador enquanto ele cria tabelas e campos. |
+| `FORJA_LOG` | servidor | Opcional. Nível do log no stderr: `info` (padrão) ou `debug`. |
+
+Para gerar as duas chaves: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+As senhas do Postgres local são padrões de desenvolvimento (veja `docker-compose.yml`); para trocá-las, defina `FORJA_PG_SENHA_*` no `.env` **antes** da primeira subida do volume.
+
+### Empresa, usuário e base de teste (no banco)
+
+Perfis, níveis de ação e regras saem do `forja.config.yaml` versionado (genérico). Os valores da sua base ficam em `forja.config.local.yaml` (está no `.gitignore`), lido por cima do genérico (objetos mesclados campo a campo; listas substituídas):
 
 ```yaml
 ambientes:
@@ -39,35 +59,46 @@ usuarios:
   meu_usuario: desenvolvedor
 ```
 
-### `.env`
+Depois, rode no seu terminal (o `forja-admin` pergunta senha e código TOTP; não cole nada disso no chat):
 
-Copie `.env.example` para `.env`, na raiz do repositório. O `.env` está no `.gitignore` e o Claude Code está proibido de lê-lo (`.claude/settings.json`).
+```powershell
+pnpm forja-admin empresa criar --slug minha-empresa --nome "Minha Empresa"
+pnpm forja-admin importar-config --empresa minha-empresa   # ambiente teste, perfis, regras e usuários
+pnpm forja-admin usuario ativar --login meu_usuario        # senha + TOTP do usuário importado
+pnpm forja-admin ambiente cadastrar --empresa minha-empresa --url https://minha-empresa-teste.sankhyacloud.com.br --usuario-banco MEU_USUARIO_BANCO_TESTE
+pnpm forja-admin ambiente testar --empresa minha-empresa
+```
 
-| Variável | O que é |
-|---|---|
-| `FORJA_USUARIO` | Seu usuário na seção `usuarios` da configuração. Exemplo: `seu_usuario`. |
-| `FORJA_TESTE_URL` | Ex.: `https://SUA-BASE-TESTE.sankhyacloud.com.br`. Precisa ser o mesmo host de `host_permitido`. |
-| `FORJA_TESTE_USUARIO` / `FORJA_TESTE_SENHA` | Login das telas do Sankhya de teste. Só o navegador usa. |
-| `FORJA_TESTE_GATEWAY_CLIENT_ID` / `_CLIENT_SECRET` | Credencial `client_credentials` do Gateway, **da base de teste**. |
-| `FORJA_TESTE_GATEWAY_TOKEN` | O `X-Token` do Gateway. |
-| `FORJA_CHAVE_APROVACAO` | Chave da assinatura dos planos, com no mínimo 32 caracteres. Para gerar: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `FORJA_NAVEGADOR_VISIVEL=1` | Opcional. Mostra o navegador enquanto ele cria tabelas e campos. |
-| `FORJA_LOG` | Opcional. Nível do log no stderr: `info` (padrão) ou `debug`. |
+- O `ambiente cadastrar` só é preciso se as credenciais não vieram pelo `importar-config` (variáveis `FORJA_TESTE_*` vazias): ele pergunta as 5 credenciais do Sankhya de teste (login e senha das telas, `client_id`, `client_secret` e `X-Token` do Gateway) e grava cifrado.
+- O `ambiente testar` confere a trava de produção, as credenciais e o `SELECT USER` pelo Gateway.
+- Outros usuários: `pnpm forja-admin usuario criar --empresa minha-empresa --login L --nome "N" --perfil P`.
 
-O modelo nunca recebe credencial: quem autentica é o servidor. Senha, token e segredo aparecem mascarados nos logs, nos erros e na auditoria.
+O modelo nunca recebe credencial: quem autentica é o servidor. Senha, token e segredo aparecem mascarados nos logs, nos erros e na auditoria. Host e usuário de banco esperados, perfis, níveis de ação e regras da empresa (horário, limite, tabelas bloqueadas) vêm do banco, não do código.
 
-**Nada fixo no código:**
-- o host e o usuário de banco esperados vêm do `forja.config.yaml`;
-- os perfis, os níveis de ação e as regras da empresa (horário, limite, tabelas bloqueadas) também.
+## 3. Entrar e registrar no Claude Code
 
-## 3. Registrar no Claude Code
+O servidor só sobe com uma sessão válida. Antes de iniciar o Claude Code, rode **no seu terminal**:
+
+```powershell
+pnpm forja-admin login     # pede login, senha e o código TOTP do aplicativo
+pnpm forja-admin logout    # encerra a sessão no banco e apaga o arquivo local
+```
+
+Registro (uma vez):
 
 ```powershell
 cd C:\Dev\forja
 claude mcp add forja-sankhya -- node packages/mcp-sankhya/dist/index.js
 ```
 
-Na Fase 2, o servidor só sobe depois de `pnpm forja-admin login` (veja a seção 7).
+Depois de um `login` novo, reconecte o servidor no Claude Code (`/mcp`).
+
+- A sessão vale 12 horas. O banco guarda só o hash do token.
+- O arquivo da sessão fica **fora do repositório**: `%APPDATA%\forja\sessao` no Windows e `~/.config/forja/sessao` (ou `$XDG_CONFIG_HOME/forja/sessao`) no resto. O `login` mostra o caminho exato.
+- A cada chamada de ferramenta, o servidor confere de novo a sessão e relê as permissões no banco:
+  - logout, expiração e troca de senha ou TOTP derrubam a próxima chamada (regra 1);
+  - mudar o perfil de alguém vale na hora, sem reiniciar.
+- Trocar de empresa exige reiniciar o servidor MCP.
 
 ## 4. Como se trabalha (planos e aprovação)
 
@@ -138,50 +169,13 @@ Detalhes da auditoria:
 - As capturas de tela de cada passo ficam em `auditoria/capturas/`.
 - O arquivo SQLite da Fase 1 (`auditoria/forja.db`), se existir, não é mais usado nem apagado: fica como histórico.
 
-## 6. Limites conhecidos da Fase 1
-
-- **As regras de deny do `.claude/settings.json` não impedem por completo que o agente leia o `.env`.**
-  - Elas bloqueiam as ferramentas Read, Edit e Write e os comandos listados.
-  - Um comando indireto, como `node -e "…fs.readFileSync('.env')…"`, um script ou outro interpretador, não casa com essas regras.
-  - Isso vale também para `FORJA_CHAVE_APROVACAO`: quem lê a chave consegue assinar um plano sozinho.
-  - Na Fase 1, a garantia real é você revisar os comandos que o Claude Code pede para rodar.
-- **A proteção definitiva da chave de aprovação vem quando a aprovação sair para a interface web.**
-  - A chave vai ficar só no servidor de aprovação, fora da máquina e do alcance do agente.
-  - A assinatura passa a exigir login do aprovador.
-
-## 7. Fase 2: banco Postgres, login e sessão
-
-A partir da Fase 2, o servidor MCP lê **tudo do Postgres**: usuário, perfis, regras da empresa, ambiente `teste` e credenciais (cifradas com AES-256-GCM). O `forja.config.local.yaml` e as variáveis `FORJA_TESTE_*` só servem para o `forja-admin importar-config`.
-
-Do `.env`, o servidor usa só:
-
-| Variável | O que é |
-|---|---|
-| `FORJA_DATABASE_URL` | Conexão com o papel `forja_app` (sujeito ao RLS). |
-| `FORJA_CHAVE_MESTRA` | 32 bytes em hex (64 caracteres) que decifram as credenciais no banco. Gere com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
-| `FORJA_CHAVE_APROVACAO` | A mesma da Fase 1 (assinatura dos planos). |
-
-### Sessão
-
-O servidor só sobe com uma sessão válida. Antes de iniciar o Claude Code, rode **no seu terminal**:
-
-```powershell
-pnpm forja-admin login     # pede login, senha e o código TOTP do aplicativo
-pnpm forja-admin logout    # encerra a sessão no banco e apaga o arquivo local
-```
-
-- A sessão vale 12 horas. O banco guarda só o hash do token.
-- O arquivo da sessão fica **fora do repositório**: `%APPDATA%\forja\sessao` no Windows e `~/.config/forja/sessao` (ou `$XDG_CONFIG_HOME/forja/sessao`) no resto. O `login` mostra o caminho exato. O arquivo antigo em `.forja/sessao` é apagado no próximo `login` ou `logout`.
-- A cada chamada de ferramenta, o servidor confere de novo a sessão e relê as permissões no banco:
-  - logout, expiração e troca de senha ou TOTP derrubam a próxima chamada (regra 1);
-  - mudar o perfil de alguém vale na hora, sem reiniciar.
-- Trocar de empresa exige reiniciar o servidor MCP.
-
-### Limites conhecidos da Fase 2
+## 6. Limites conhecidos
 
 - **O `forja-aprovar` pede um código TOTP a cada assinatura e a cada `--passo`.**
   - Pelo caminho oficial, ninguém aprova sem o aplicativo autenticador.
   - Mas o porteiro confere o HMAC, não o TOTP: quem conseguir ler a `FORJA_CHAVE_APROVACAO` ainda consegue montar uma assinatura válida sem passar pelo comando. Isso só acaba quando a aprovação for para a web (a chave sai desta máquina).
-- **A separação completa só vem quando o servidor rodar fora desta máquina.**
-  - Hoje a `FORJA_CHAVE_MESTRA` e o `.env` ficam na mesma máquina em que o agente roda.
-  - As regras de deny do `.claude/settings.json` (inclusive as da pasta da sessão) bloqueiam Read, Edit e Write, mas não comandos de shell indiretos. Continue revisando os comandos que o Claude Code pede para rodar.
+- **As regras de deny do `.claude/settings.json` não impedem por completo que o agente leia o `.env` ou a sessão.**
+  - Elas bloqueiam as ferramentas Read, Edit e Write e os comandos listados.
+  - Um comando indireto, como `node -e "…fs.readFileSync('.env')…"`, um script ou outro interpretador, não casa com essas regras.
+  - A garantia real, por enquanto, é você revisar os comandos que o Claude Code pede para rodar.
+- **A separação completa só vem quando o servidor rodar fora desta máquina.** Hoje a `FORJA_CHAVE_MESTRA` e o `.env` ficam na mesma máquina em que o agente roda.

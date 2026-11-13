@@ -11,8 +11,8 @@ Regras: uma ação por passo de plano; nada específico de empresa em arquivo ve
 - [x] README atualizado
 
 ## 2. Fase 2, etapa 7: fechamento
-- [ ] README revisado e `.env.example` reduzido
-- [ ] Conferência final no sandbox: `consultar_sql` + `ler_dicionario` da AD_FORJATESTE
+- [x] README revisado e `.env.example` reduzido
+- [!] Conferência final no sandbox: `consultar_sql` + `ler_dicionario` da AD_FORJATESTE — precisa reconectar o forja-sankhya com o build novo (você)
 
 ## 3. Catálogo de capacidades
 - [ ] Estrutura `capacidades/<nome>/receita.md` + `casos/*.yaml`; `capacidades.local/` no `.gitignore`

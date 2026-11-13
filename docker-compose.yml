@@ -1,0 +1,30 @@
+# Postgres local da Forja (desenvolvimento). Só escuta em 127.0.0.1.
+# As senhas abaixo são padrões de desenvolvimento local; troque-as definindo as variáveis no .env
+# (o docker compose lê o .env da raiz para substituir ${...}). Os papéis são criados só na
+# primeira subida do volume (infra/postgres/init).
+name: forja
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    container_name: forja-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${FORJA_PG_SENHA_SUPER:-forja-local-super}
+      POSTGRES_DB: postgres
+      FORJA_PG_SENHA_DONO: ${FORJA_PG_SENHA_DONO:-forja-local-dono}
+      FORJA_PG_SENHA_APP: ${FORJA_PG_SENHA_APP:-forja-local-app}
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - forja-pg:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  forja-pg:
